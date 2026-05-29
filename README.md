@@ -231,6 +231,8 @@ Convenience wrappers:
 - `npm run service:sh`
 - `npm run backend:check:ps`
 - `npm run backend:check:sh`
+- `npm run smoke:ps`
+- `npm run smoke:sh`
 
 When the service or plugin starts in `graphiti-neo4j` mode, it performs a non-blocking backend warmup and logs whether Neo4j schema bootstrap succeeded or the backend is degraded.
 
@@ -256,6 +258,8 @@ The plugin registers:
 - `ocm_audit`
 
 `GET /diagnostics` is intended for real backend bring-up: it combines backend health, per-scope node counts, candidate counts, and audit sample output into one response.
+
+The smoke scripts are the fastest end-to-end check for a running `memoryd`: they ingest one sample failure/fix event, run shallow recall, run deeper recall, and then print diagnostics for the same scope.
 
 ## Verification Status
 

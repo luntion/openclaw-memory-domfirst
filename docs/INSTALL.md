@@ -155,6 +155,22 @@ curl http://127.0.0.1:42690/diagnostics
 
 This endpoint is useful during first-time Graphiti/Neo4j bring-up because it returns backend health together with scoped node counts, candidate counts, and sample audit findings.
 
+Smoke test:
+
+Windows:
+
+```powershell
+npm run smoke:ps
+```
+
+macOS / Linux:
+
+```bash
+npm run smoke:sh
+```
+
+The smoke test ingests a sample failure/fix memory, runs both shallow and deep recall, and prints diagnostics for the same test scope.
+
 ## 7. Verify Plugin Behavior
 
 Use a short OpenClaw conversation, then confirm:

@@ -194,6 +194,20 @@ curl http://127.0.0.1:42690/health
 curl http://127.0.0.1:42690/diagnostics
 ```
 
+### 运行联调 smoke-test
+
+Windows：
+
+```powershell
+npm run smoke:ps
+```
+
+macOS / Linux：
+
+```bash
+npm run smoke:sh
+```
+
 ### 一次性检查 Graphiti / Neo4j / memoryd
 
 Windows：
@@ -222,6 +236,13 @@ npm run backend:check:sh
 - 候选共享记忆数量
 - 审计问题数量
 - 候选与审计样本
+
+smoke-test 会自动完成：
+
+- 写入一条样本故障/修复记忆
+- 触发一次浅召回验证
+- 触发一次深召回验证
+- 输出同一作用域下的综合诊断结果
 
 ## 8. 验证插件是否生效
 

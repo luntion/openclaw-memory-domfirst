@@ -22,6 +22,8 @@
     "service:sh": "bash ./scripts/start-memoryd.sh",
     "backend:check:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/check-backend.ps1",
     "backend:check:sh": "bash ./scripts/check-backend.sh",
+    "smoke:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/smoke-memory.ps1",
+    "smoke:sh": "bash ./scripts/smoke-memory.sh",
     "package:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/package-release.ps1",
     "package:sh": "bash ./scripts/package-release.sh",
     "verify:release": "npm test && npm run build",

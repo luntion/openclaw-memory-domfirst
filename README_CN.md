@@ -199,6 +199,11 @@ npm run service
 - Windows: `npm run backend:check:ps`
 - macOS / Linux: `npm run backend:check:sh`
 
+联调 smoke-test 脚本：
+
+- Windows: `npm run smoke:ps`
+- macOS / Linux: `npm run smoke:sh`
+
 服务或插件启动时会做一次非阻塞后端预热，并在日志里说明 Neo4j schema 是否初始化成功，或者当前处于降级状态。
 
 默认服务地址：
@@ -223,6 +228,8 @@ http://127.0.0.1:42690
 - `ocm_audit`
 
 `GET /diagnostics` 主要用于真实联调，它会把后端健康状态、各层 scope 节点数量、候选记忆数量和审计样本一次性返回，便于判断 Neo4j / Graphiti 当前是否处于可用状态。
+
+如果你已经启动了 `memoryd`，可以直接跑 smoke-test。它会自动写入一条样本故障记忆，再验证浅召回、深召回和综合诊断是否正常。
 
 ## 当前验证状态
 

@@ -188,6 +188,12 @@ http://127.0.0.1:42690
 curl http://127.0.0.1:42690/health
 ```
 
+### 查看综合诊断信息
+
+```bash
+curl http://127.0.0.1:42690/diagnostics
+```
+
 ### 一次性检查 Graphiti / Neo4j / memoryd
 
 Windows：
@@ -209,6 +215,13 @@ npm run backend:check:sh
 - Neo4j Bolt 端口连通性
 
 在 `graphiti-neo4j` 模式下，`/health` 返回里还会包含 `schemaReady`、`neo4j`、`graphiti` 等后端状态字段。
+
+`/diagnostics` 会额外返回：
+
+- 各 scope 的节点数量
+- 候选共享记忆数量
+- 审计问题数量
+- 候选与审计样本
 
 ## 8. 验证插件是否生效
 

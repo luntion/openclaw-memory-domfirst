@@ -49,6 +49,7 @@
 
 - `GET /health`
 - `GET /stats`
+- `GET /diagnostics`
 - `POST /ingest`
 - `POST /search`
 - `POST /recall-plan`
@@ -220,6 +221,8 @@ http://127.0.0.1:42690
 - `ocm_lineage`
 - `ocm_review_candidate`
 - `ocm_audit`
+
+`GET /diagnostics` 主要用于真实联调，它会把后端健康状态、各层 scope 节点数量、候选记忆数量和审计样本一次性返回，便于判断 Neo4j / Graphiti 当前是否处于可用状态。
 
 ## 当前验证状态
 

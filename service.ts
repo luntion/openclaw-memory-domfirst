@@ -90,6 +90,36 @@ function formatAuditResult(items: Awaited<ReturnType<DomFirstMemoryEngine["audit
   ).join("\n\n");
 }
 
+function formatDiagnosticsResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["diagnostics"]>>): string {
+  const lines = [
+    `Backend: ${payload.backend}`,
+    `Session nodes: ${payload.scopeStats.session}`,
+    `Agent nodes: ${payload.scopeStats.agent}`,
+    `Project nodes: ${payload.scopeStats.project}`,
+    `Team nodes: ${payload.scopeStats.team}`,
+    `Candidates: ${payload.candidateCount}`,
+    `Audit findings: ${payload.auditFindingCount}`,
+  ];
+  const status = payload.health?.status;
+  const neo4j = payload.health?.neo4j;
+  const graphiti = payload.health?.graphiti;
+  const schemaReady = payload.health?.schemaReady;
+  lines.push(`Health: status=${String(status ?? "unknown")} neo4j=${String(neo4j ?? "n/a")} graphiti=${String(graphiti ?? "n/a")} schemaReady=${String(schemaReady ?? "n/a")}`);
+  if (payload.sampleCandidates.length) {
+    lines.push("", "Sample candidates:");
+    for (const item of payload.sampleCandidates) {
+      lines.push(`[${item.scopeType}] ${item.name} verification=${item.verificationCount} confidence=${item.confidence}`);
+    }
+  }
+  if (payload.sampleAuditFindings.length) {
+    lines.push("", "Sample audit findings:");
+    for (const item of payload.sampleAuditFindings) {
+      lines.push(`${item.severity.toUpperCase()} [${item.scopeType}] ${item.name} ${item.reason}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function readConfig(): GmConfig {
   return {
     ...DEFAULT_CONFIG,
@@ -164,6 +194,17 @@ async function main(): Promise<void> {
           teamId: url.searchParams.get("teamId") ?? cfg.teamId,
         });
         return void res.end(JSON.stringify(await engine.stats(ctx)));
+      }
+
+      if (req.method === "GET" && url.pathname === "/diagnostics") {
+        const ctx = engine.buildScopeContext({
+          sessionId: url.searchParams.get("sessionId") ?? "service-session",
+          agentId: url.searchParams.get("agentId") ?? cfg.defaultAgentId,
+          projectId: url.searchParams.get("projectId") ?? cfg.defaultProjectId,
+          teamId: url.searchParams.get("teamId") ?? cfg.teamId,
+        });
+        const result = await engine.diagnostics(ctx);
+        return void res.end(JSON.stringify({ ...result, displayText: formatDiagnosticsResult(result) }));
       }
 
       if (req.method === "POST" && url.pathname === "/recall-plan") {

@@ -147,6 +147,14 @@ Expected response:
 
 In `graphiti-neo4j` mode, the backend health payload also reports whether Neo4j schema bootstrap succeeded and whether Graphiti is reachable.
 
+Combined diagnostics:
+
+```bash
+curl http://127.0.0.1:42690/diagnostics
+```
+
+This endpoint is useful during first-time Graphiti/Neo4j bring-up because it returns backend health together with scoped node counts, candidate counts, and sample audit findings.
+
 ## 7. Verify Plugin Behavior
 
 Use a short OpenClaw conversation, then confirm:

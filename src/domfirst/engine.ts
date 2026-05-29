@@ -1,6 +1,7 @@
 import type { EmbedFn } from "../engine/embed.ts";
 import type { CompleteFn } from "../engine/llm.ts";
 import type {
+  BackendDiagnostics,
   CandidateReviewAction,
   GmConfig,
   GmNode,
@@ -222,6 +223,50 @@ export class DomFirstMemoryEngine {
 
   async health() {
     return this.runtime.health();
+  }
+
+  async diagnostics(ctx: ScopeContext): Promise<BackendDiagnostics> {
+    const [health, sessionStats, agentStats, projectStats, teamStats, candidates, auditFindings] = await Promise.all([
+      this.runtime.health(),
+      this.runtime.graphStore.stats([{ scopeType: "session", scopeIds: [ctx.sessionId] }]),
+      this.runtime.graphStore.stats([{ scopeType: "agent", scopeIds: [ctx.agentId] }]),
+      ctx.projectId
+        ? this.runtime.graphStore.stats([{ scopeType: "project", scopeIds: [ctx.projectId] }])
+        : Promise.resolve({ totalNodes: 0, totalEdges: 0, communities: 0 }),
+      ctx.teamId
+        ? this.runtime.graphStore.stats([{ scopeType: "team", scopeIds: [ctx.teamId] }])
+        : Promise.resolve({ totalNodes: 0, totalEdges: 0, communities: 0 }),
+      this.runtime.graphStore.listCandidates(buildScopeFilters(ctx, true), 10),
+      this.runtime.graphStore.audit(buildScopeFilters(ctx, true)),
+    ]);
+
+    return {
+      backend: this.cfg.backend.mode,
+      health,
+      scopeStats: {
+        session: sessionStats.totalNodes,
+        agent: agentStats.totalNodes,
+        project: projectStats.totalNodes,
+        team: teamStats.totalNodes,
+      },
+      candidateCount: candidates.length,
+      auditFindingCount: auditFindings.length,
+      sampleCandidates: candidates.slice(0, 5).map((node) => ({
+        name: node.name,
+        scopeType: node.scopeType,
+        scopeId: node.scopeId,
+        verificationCount: node.verificationCount,
+        confidence: node.confidence,
+        promotionState: node.promotionState,
+      })),
+      sampleAuditFindings: auditFindings.slice(0, 5).map((item) => ({
+        name: item.name,
+        scopeType: item.scopeType,
+        scopeId: item.scopeId,
+        severity: item.severity,
+        reason: item.reason,
+      })),
+    };
   }
 
   async runMaintenance(): Promise<any> {

@@ -47,6 +47,7 @@ The local service exposes:
 
 - `GET /health`
 - `GET /stats`
+- `GET /diagnostics`
 - `POST /ingest`
 - `POST /search`
 - `POST /recall-plan`
@@ -253,6 +254,8 @@ The plugin registers:
 - `ocm_lineage`
 - `ocm_review_candidate`
 - `ocm_audit`
+
+`GET /diagnostics` is intended for real backend bring-up: it combines backend health, per-scope node counts, candidate counts, and audit sample output into one response.
 
 ## Verification Status
 

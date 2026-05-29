@@ -202,6 +202,34 @@ export interface CandidateReviewResult {
   reason: string;
 }
 
+export interface BackendDiagnostics {
+  backend: BackendMode;
+  health: Record<string, unknown>;
+  scopeStats: {
+    session: number;
+    agent: number;
+    project: number;
+    team: number;
+  };
+  candidateCount: number;
+  auditFindingCount: number;
+  sampleCandidates: Array<{
+    name: string;
+    scopeType: ScopeType;
+    scopeId: string;
+    verificationCount: number;
+    confidence: number;
+    promotionState: PromotionState;
+  }>;
+  sampleAuditFindings: Array<{
+    name: string;
+    scopeType: ScopeType;
+    scopeId: string;
+    severity: "low" | "medium" | "high";
+    reason: string;
+  }>;
+}
+
 export interface RecallPlan {
   depth: RecallDepth;
   includeTeam: boolean;

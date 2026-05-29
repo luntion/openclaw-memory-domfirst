@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-First release candidate of `openclaw-memory-hybrid`.
+First release candidate of `openclaw-memory-domfirst`.
 
 Highlights:
 

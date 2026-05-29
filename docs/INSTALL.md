@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers local setup for `openclaw-memory-hybrid` as:
+This guide covers local setup for `openclaw-memory-domfirst` as:
 
 - an OpenClaw context-engine plugin
 - an optional local memory service
@@ -28,7 +28,7 @@ npm run build
 
 ## 3. OpenClaw Plugin Registration
 
-Add `openclaw-memory-hybrid` as the context engine in your OpenClaw config.
+Add `openclaw-memory-domfirst` as the context engine in your OpenClaw config.
 
 Example config fragment:
 
@@ -36,13 +36,13 @@ Example config fragment:
 {
   "plugins": {
     "slots": {
-      "contextEngine": "openclaw-memory-hybrid"
+      "contextEngine": "openclaw-memory-domfirst"
     },
     "entries": {
-      "openclaw-memory-hybrid": {
+      "openclaw-memory-domfirst": {
         "enabled": true,
         "config": {
-          "dbPath": "~/.openclaw/openclaw-memory-hybrid.db",
+          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
           "serviceHost": "127.0.0.1",
           "servicePort": 42690,
           "teamId": "team-default",

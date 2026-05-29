@@ -5,7 +5,7 @@ This repository now supports a minimal release workflow for local packaging.
 ## Current Release Target
 
 - version: `0.2.0`
-- package name: `openclaw-memory-hybrid`
+- package name: `openclaw-memory-domfirst`
 
 ## Before Packaging
 

@@ -1,5 +1,5 @@
 /**
- * graph-memory core store, adapted for openclaw-memory-hybrid.
+ * graph-memory core store, adapted for openclaw-memory-domfirst.
  */
 
 import { createHash } from "crypto";
@@ -15,7 +15,7 @@ import type {
   MemoryMetadata,
   ScopeType,
 } from "../types.ts";
-import { matchesScopeFilters } from "../hybrid/scope.ts";
+import { matchesScopeFilters } from "../domfirst/scope.ts";
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

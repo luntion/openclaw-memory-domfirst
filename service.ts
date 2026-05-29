@@ -3,9 +3,9 @@ import { getDb } from "./src/store/db.ts";
 import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
-import { HybridMemoryEngine } from "./src/hybrid/engine.ts";
+import { DomFirstMemoryEngine } from "./src/domfirst/engine.ts";
 
-function formatSearchResult(payload: Awaited<ReturnType<HybridMemoryEngine["search"]>>): string {
+function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["search"]>>): string {
   const lines: string[] = [];
   const { plan, result } = payload;
   lines.push(`Recall depth: ${plan.depth}`);
@@ -31,7 +31,7 @@ function formatSearchResult(payload: Awaited<ReturnType<HybridMemoryEngine["sear
   return lines.join("\n").trim();
 }
 
-function formatInspectResult(payload: ReturnType<HybridMemoryEngine["inspect"]>): string {
+function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]>): string {
   const lines: string[] = [];
   if (payload.nodes.length) {
     lines.push("Current nodes:");
@@ -54,7 +54,7 @@ function formatInspectResult(payload: ReturnType<HybridMemoryEngine["inspect"]>)
   return lines.length ? lines.join("\n").trim() : "No matching memory found.";
 }
 
-function formatCandidateResult(nodes: ReturnType<HybridMemoryEngine["candidates"]>): string {
+function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidates"]>): string {
   if (!nodes.length) return "No promotion candidates found.";
   return nodes.map((node) =>
     [
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   const db = getDb(cfg.dbPath);
   const { provider, model } = readProviderModel();
   const llm = createCompleteFn(provider, model, cfg.llm);
-  const engine = new HybridMemoryEngine(db, cfg, llm, console);
+  const engine = new DomFirstMemoryEngine(db, cfg, llm, console);
   const embed = await createEmbedFn(cfg.embedding).catch(() => null);
   engine.setEmbedFn(embed);
 

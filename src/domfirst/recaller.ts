@@ -5,7 +5,7 @@ import { graphWalkScoped, searchScopedNodes, vectorSearchScoped } from "./store.
 import { personalizedPageRank } from "../graph/pagerank.ts";
 import { searchNodeVersions } from "../store/store.ts";
 
-export class HybridRecaller {
+export class DomFirstRecaller {
   private embed: EmbedFn | null = null;
 
   constructor(

@@ -1,4 +1,4 @@
-# OpenClaw Memory Hybrid
+# OpenClaw Memory DomFirst
 
 Local-first layered memory for OpenClaw, built on top of `graph-memory`.
 
@@ -23,7 +23,7 @@ Quick links:
 
 ## What It Does
 
-`openclaw-memory-hybrid` ships as two parts:
+`openclaw-memory-domfirst` ships as two parts:
 
 - `OpenClaw context-engine plugin`
 - `ocm-memoryd local memory service`
@@ -126,8 +126,8 @@ This is enough to support questions like:
 
 ```text
 OpenClaw
-  -> openclaw-memory-hybrid plugin
-      -> HybridMemoryEngine
+  -> openclaw-memory-domfirst plugin
+      -> DomFirstMemoryEngine
           -> scoped store
           -> recall planner
           -> hybrid recaller
@@ -149,14 +149,14 @@ OpenClaw
 index.ts                     OpenClaw plugin entry
 service.ts                   Local HTTP memory service
 openclaw.plugin.json         Plugin manifest
-src/hybrid/engine.ts         Main orchestration layer
-src/hybrid/recall-plan.ts    Elastic recall planner
-src/hybrid/recaller.ts       Scoped recall execution
-src/hybrid/promotion.ts      Candidate promotion and team sharing
-src/hybrid/files.ts          Knowledge-file discovery and indexing
+src/domfirst/engine.ts       Main orchestration layer
+src/domfirst/recall-plan.ts  Elastic recall planner
+src/domfirst/recaller.ts     Scoped recall execution
+src/domfirst/promotion.ts    Candidate promotion and team sharing
+src/domfirst/files.ts        Knowledge-file discovery and indexing
 src/store/db.ts              SQLite schema and migrations
 src/store/store.ts           Core graph-memory store logic
-test/hybrid.test.ts          Layered memory behavior tests
+test/domfirst.test.ts        Layered memory behavior tests
 ```
 
 ## Install
@@ -170,7 +170,7 @@ test/hybrid.test.ts          Layered memory behavior tests
 
 ```bash
 git clone <your-repo-or-local-copy>
-cd openclaw-memory-hybrid
+cd openclaw-memory-domfirst
 npm install
 npm test
 npm run build
@@ -186,13 +186,13 @@ Example:
 {
   "plugins": {
     "slots": {
-      "contextEngine": "openclaw-memory-hybrid"
+      "contextEngine": "openclaw-memory-domfirst"
     },
     "entries": {
-      "openclaw-memory-hybrid": {
+      "openclaw-memory-domfirst": {
         "enabled": true,
         "config": {
-          "dbPath": "~/.openclaw/openclaw-memory-hybrid.db",
+          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
           "teamId": "team-default",
           "defaultAgentId": "agent-main",
           "defaultProjectId": "project-main",

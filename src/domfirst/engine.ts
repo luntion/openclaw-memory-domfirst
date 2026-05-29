@@ -13,7 +13,7 @@ import { getUnextracted, markExtracted, saveMessage, edgesFrom, edgesTo, getMess
 import { assembleContext } from "../format/assemble.ts";
 import { runMaintenance } from "../graph/maintenance.ts";
 import { planRecall } from "./recall-plan.ts";
-import { HybridRecaller } from "./recaller.ts";
+import { DomFirstRecaller } from "./recaller.ts";
 import { defaultMetadata, buildScopeFilters } from "./scope.ts";
 import {
   findScopedNodeByName,
@@ -28,9 +28,9 @@ import { discoverKnowledgeFiles, indexKnowledgeFiles } from "./files.ts";
 import { markPromotionCandidate, maybePromoteToTeam } from "./promotion.ts";
 import { classifyEdgeScope, classifyNodeScope, extractEventTime, scopeIdFor } from "./classify.ts";
 
-export class HybridMemoryEngine {
+export class DomFirstMemoryEngine {
   private extractor: Extractor;
-  private recaller: HybridRecaller;
+  private recaller: DomFirstRecaller;
   private embedFn: EmbedFn | null = null;
   private msgSeq = new Map<string, number>();
   private extractChain = new Map<string, Promise<void>>();
@@ -42,7 +42,7 @@ export class HybridMemoryEngine {
     private logger?: { info?: (...args: any[]) => void; warn?: (...args: any[]) => void; error?: (...args: any[]) => void },
   ) {
     this.extractor = new Extractor(cfg, llm);
-    this.recaller = new HybridRecaller(db, cfg);
+    this.recaller = new DomFirstRecaller(db, cfg);
   }
 
   setEmbedFn(fn: EmbedFn | null): void {
@@ -136,9 +136,9 @@ export class HybridMemoryEngine {
 
       const maxTurn = Math.max(...msgs.map((msg: any) => msg.turn_index));
       markExtracted(this.db, ctx.sessionId, maxTurn);
-      this.logger?.info?.(`[openclaw-memory-hybrid] extracted ${result.nodes.length} nodes and ${result.edges.length} edges`);
+      this.logger?.info?.(`[openclaw-memory-domfirst] extracted ${result.nodes.length} nodes and ${result.edges.length} edges`);
     }).catch((error) => {
-      this.logger?.error?.(`[openclaw-memory-hybrid] afterTurn extract failed: ${error}`);
+      this.logger?.error?.(`[openclaw-memory-domfirst] afterTurn extract failed: ${error}`);
     });
     this.extractChain.set(ctx.sessionId, next);
     await next;

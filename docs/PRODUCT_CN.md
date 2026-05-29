@@ -1,6 +1,6 @@
 # 产品说明
 
-`openclaw-memory-hybrid` 是一套基于 `graph-memory` 主干增强出来的 OpenClaw 记忆引擎，重点不是把图库做得更大，而是把它做成真正适合多 agent 协作、对 token 友好、对本地使用稳定的产品。
+`openclaw-memory-domfirst` 是一套基于 `graph-memory` 主干增强出来的 OpenClaw 记忆引擎，重点不是把图库做得更大，而是把它做成真正适合多 agent 协作、对 token 友好、对本地使用稳定的产品。
 
 ## 用户最终会感受到什么
 

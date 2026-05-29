@@ -4,8 +4,8 @@ import { getDb } from "./src/store/db.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
 import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
-import { HybridMemoryEngine } from "./src/hybrid/engine.ts";
-import { upsertScopedNode } from "./src/hybrid/store.ts";
+import { DomFirstMemoryEngine } from "./src/domfirst/engine.ts";
+import { upsertScopedNode } from "./src/domfirst/store.ts";
 
 function readProviderModel(apiConfig: unknown): { provider: string; model: string } {
   let raw = "";
@@ -34,7 +34,7 @@ function ctxFromHook(input: any, cfg: GmConfig, sessionId?: string) {
   };
 }
 
-function formatSearchResult(payload: Awaited<ReturnType<HybridMemoryEngine["search"]>>): string {
+function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["search"]>>): string {
   const lines: string[] = [];
   const { plan, result } = payload;
 
@@ -76,7 +76,7 @@ function formatSearchResult(payload: Awaited<ReturnType<HybridMemoryEngine["sear
   return lines.join("\n").trim();
 }
 
-function formatInspectResult(payload: ReturnType<HybridMemoryEngine["inspect"]>): string {
+function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]>): string {
   const lines: string[] = [];
   if (payload.nodes.length) {
     lines.push("Current nodes:");
@@ -100,7 +100,7 @@ function formatInspectResult(payload: ReturnType<HybridMemoryEngine["inspect"]>)
   return lines.length ? lines.join("\n").trim() : "No matching memory found.";
 }
 
-function formatCandidateResult(nodes: ReturnType<HybridMemoryEngine["candidates"]>): string {
+function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidates"]>): string {
   if (!nodes.length) return "No promotion candidates found.";
   return nodes.map((node) =>
     [
@@ -112,8 +112,8 @@ function formatCandidateResult(nodes: ReturnType<HybridMemoryEngine["candidates"
 }
 
 const plugin = {
-  id: "openclaw-memory-hybrid",
-  name: "OpenClaw Memory Hybrid",
+  id: "openclaw-memory-domfirst",
+  name: "OpenClaw Memory DomFirst",
   kind: "context-engine" as const,
 
   register(api: OpenClawPluginApi) {
@@ -121,22 +121,22 @@ const plugin = {
     const db = getDb(cfg.dbPath);
     const { provider, model } = readProviderModel(api.config);
     const llm = createCompleteFn(provider, model, cfg.llm);
-    const engine = new HybridMemoryEngine(db, cfg, llm, api.logger);
+    const engine = new DomFirstMemoryEngine(db, cfg, llm, api.logger);
 
     createEmbedFn(cfg.embedding)
       .then((embed) => {
         engine.setEmbedFn(embed);
-        api.logger.info(`[openclaw-memory-hybrid] ready | db=${cfg.dbPath} | provider=${provider} | model=${model}`);
+        api.logger.info(`[openclaw-memory-domfirst] ready | db=${cfg.dbPath} | provider=${provider} | model=${model}`);
       })
       .catch(() => {
         engine.setEmbedFn(null);
-        api.logger.info(`[openclaw-memory-hybrid] ready in FTS fallback mode | db=${cfg.dbPath}`);
+        api.logger.info(`[openclaw-memory-domfirst] ready in FTS fallback mode | db=${cfg.dbPath}`);
       });
 
-    api.registerContextEngine("openclaw-memory-hybrid", () => ({
+    api.registerContextEngine("openclaw-memory-domfirst", () => ({
       info: {
-        id: "openclaw-memory-hybrid",
-        name: "OpenClaw Memory Hybrid",
+        id: "openclaw-memory-domfirst",
+        name: "OpenClaw Memory DomFirst",
         ownsCompaction: false,
       },
       async ingest({ sessionId, message, isHeartbeat }: any) {

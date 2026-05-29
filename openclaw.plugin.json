@@ -1,7 +1,7 @@
 {
   "kind": "context-engine",
-  "id": "openclaw-memory-hybrid",
-  "name": "OpenClaw Memory Hybrid",
+  "id": "openclaw-memory-domfirst",
+  "name": "OpenClaw Memory DomFirst",
   "version": "0.2.0",
   "description": "Scoped elastic memory engine with layered recall and local service",
   "configSchema": {
@@ -9,7 +9,7 @@
     "properties": {
       "dbPath": {
         "type": "string",
-        "default": "~/.openclaw/openclaw-memory-hybrid.db",
+        "default": "~/.openclaw/openclaw-memory-domfirst.db",
         "description": "SQLite database path"
       },
       "serviceHost": {

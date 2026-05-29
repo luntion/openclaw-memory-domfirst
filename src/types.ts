@@ -1,5 +1,5 @@
 /**
- * openclaw-memory-hybrid
+ * openclaw-memory-domfirst
  *
  * Graph-memory-first hybrid memory types.
  */
@@ -211,7 +211,7 @@ export interface GmConfig {
 }
 
 export const DEFAULT_CONFIG: GmConfig = {
-  dbPath: "~/.openclaw/openclaw-memory-hybrid.db",
+  dbPath: "~/.openclaw/openclaw-memory-domfirst.db",
   compactTurnCount: 6,
   recallMaxNodes: 6,
   recallMaxDepth: 2,

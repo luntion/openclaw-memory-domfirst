@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb } from "./helpers.ts";
-import { planRecall } from "../src/hybrid/recall-plan.ts";
-import { upsertScopedNode, findScopedNodeByName } from "../src/hybrid/store.ts";
-import { maybePromoteToTeam, markPromotionCandidate } from "../src/hybrid/promotion.ts";
-import { HybridRecaller } from "../src/hybrid/recaller.ts";
+import { planRecall } from "../src/domfirst/recall-plan.ts";
+import { upsertScopedNode, findScopedNodeByName } from "../src/domfirst/store.ts";
+import { maybePromoteToTeam, markPromotionCandidate } from "../src/domfirst/promotion.ts";
+import { DomFirstRecaller } from "../src/domfirst/recaller.ts";
 import { DEFAULT_CONFIG } from "../src/types.ts";
-import { classifyNodeScope } from "../src/hybrid/classify.ts";
+import { classifyNodeScope } from "../src/domfirst/classify.ts";
 import { getNodeVersions } from "../src/store/store.ts";
-import { HybridMemoryEngine } from "../src/hybrid/engine.ts";
+import { DomFirstMemoryEngine } from "../src/domfirst/engine.ts";
 
 let db: ReturnType<typeof createTestDb>;
 
@@ -134,7 +134,7 @@ describe("scoped recaller", () => {
       content: "private remediation",
     }, ctx, { scopeType: "agent", scopeId: "agent-a" });
 
-    const recaller = new HybridRecaller(db, DEFAULT_CONFIG);
+    const recaller = new DomFirstRecaller(db, DEFAULT_CONFIG);
     const result = await recaller.recall("remediation", {
       depth: "L2",
       includeTeam: false,
@@ -174,7 +174,7 @@ describe("scoped recaller", () => {
       eventTime: new Date("2026-05-21T08:00:00Z").getTime(),
     });
 
-    const recaller = new HybridRecaller(db, DEFAULT_CONFIG);
+    const recaller = new DomFirstRecaller(db, DEFAULT_CONFIG);
     const plan = planRecall("昨天那个 plugin 故障是什么", ctx, now);
     const result = await recaller.recall("plugin failure", plan);
 
@@ -232,7 +232,7 @@ describe("scoped recaller", () => {
       supersededBy: "skill-history-new",
     });
 
-    const recaller = new HybridRecaller(db, DEFAULT_CONFIG);
+    const recaller = new DomFirstRecaller(db, DEFAULT_CONFIG);
     const result = await recaller.recall("skill-history", {
       depth: "L2",
       includeTeam: false,
@@ -269,7 +269,7 @@ describe("scoped recaller", () => {
       content: "current approach",
     }, ctx, { scopeType: "project", scopeId: "proj-1", supersededBy: "timeline-skill-v3" });
 
-    const recaller = new HybridRecaller(db, DEFAULT_CONFIG);
+    const recaller = new DomFirstRecaller(db, DEFAULT_CONFIG);
     const result = await recaller.recall("timeline-skill", {
       depth: "L3",
       includeTeam: false,
@@ -304,7 +304,7 @@ describe("admin/debug memory access", () => {
       content: "new content",
     }, ctx, { scopeType: "agent", scopeId: "agent-a", supersededBy: "inspect-skill-v2" });
 
-    const engine = new HybridMemoryEngine(db, DEFAULT_CONFIG, async () => "");
+    const engine = new DomFirstMemoryEngine(db, DEFAULT_CONFIG, async () => "");
     const result = engine.inspect("inspect-skill", ctx, false);
 
     expect(result.nodes.length).toBeGreaterThanOrEqual(1);
@@ -322,7 +322,7 @@ describe("admin/debug memory access", () => {
     }, ctx, { scopeType: "agent", scopeId: "agent-a" });
 
     markPromotionCandidate(db, node.id);
-    const engine = new HybridMemoryEngine(db, DEFAULT_CONFIG, async () => "");
+    const engine = new DomFirstMemoryEngine(db, DEFAULT_CONFIG, async () => "");
     const items = engine.candidates(ctx, false, 10);
 
     expect(items.some((item) => item.name === "candidate-skill")).toBe(true);

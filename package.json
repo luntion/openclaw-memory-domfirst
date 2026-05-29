@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-memory-hybrid",
+  "name": "openclaw-memory-domfirst",
   "version": "0.2.0",
   "description": "Layered temporal memory engine for OpenClaw",
   "main": "index.ts",

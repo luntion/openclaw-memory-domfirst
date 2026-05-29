@@ -1,6 +1,6 @@
 # 安装部署说明
 
-这份说明用于把 `openclaw-memory-hybrid` 作为：
+这份说明用于把 `openclaw-memory-domfirst` 作为：
 
 - OpenClaw 的 `context-engine` 插件
 - 可选的本地 memory service
@@ -30,7 +30,7 @@ npm run build
 
 ## 3. 配置 OpenClaw 插件
 
-把 `openclaw-memory-hybrid` 注册成 OpenClaw 的 `contextEngine`。
+把 `openclaw-memory-domfirst` 注册成 OpenClaw 的 `contextEngine`。
 
 配置片段示例：
 
@@ -38,13 +38,13 @@ npm run build
 {
   "plugins": {
     "slots": {
-      "contextEngine": "openclaw-memory-hybrid"
+      "contextEngine": "openclaw-memory-domfirst"
     },
     "entries": {
-      "openclaw-memory-hybrid": {
+      "openclaw-memory-domfirst": {
         "enabled": true,
         "config": {
-          "dbPath": "~/.openclaw/openclaw-memory-hybrid.db",
+          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
           "serviceHost": "127.0.0.1",
           "servicePort": 42690,
           "teamId": "team-default",

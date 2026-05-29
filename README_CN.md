@@ -1,4 +1,4 @@
-# OpenClaw Memory Hybrid
+# OpenClaw Memory DomFirst
 
 这是一个基于 `graph-memory` 主干改造出来的 OpenClaw 分层弹性记忆系统。
 
@@ -30,7 +30,7 @@
 
 它由两个组件组成：
 
-- `openclaw-memory-hybrid`
+- `openclaw-memory-domfirst`
   OpenClaw `context-engine` 插件
 - `ocm-memoryd`
   本地常驻 memory service
@@ -154,8 +154,8 @@
 
 ```text
 OpenClaw
-  -> openclaw-memory-hybrid 插件
-      -> HybridMemoryEngine
+  -> openclaw-memory-domfirst 插件
+      -> DomFirstMemoryEngine
           -> 分层存储
           -> 召回评级器
           -> 分层召回器
@@ -177,14 +177,14 @@ OpenClaw
 index.ts                     OpenClaw 插件入口
 service.ts                   本地 memory service
 openclaw.plugin.json         插件清单
-src/hybrid/engine.ts         核心编排层
-src/hybrid/recall-plan.ts    弹性召回评级
-src/hybrid/recaller.ts       分层召回执行
-src/hybrid/promotion.ts      晋升逻辑
-src/hybrid/files.ts          文件记忆索引
+src/domfirst/engine.ts       核心编排层
+src/domfirst/recall-plan.ts  弹性召回评级
+src/domfirst/recaller.ts     分层召回执行
+src/domfirst/promotion.ts    晋升逻辑
+src/domfirst/files.ts        文件记忆索引
 src/store/db.ts              SQLite 表结构与迁移
 src/store/store.ts           graph-memory 主干存储逻辑
-test/hybrid.test.ts          分层记忆测试
+test/domfirst.test.ts        分层记忆测试
 ```
 
 ## 安装与本地运行
@@ -198,7 +198,7 @@ test/hybrid.test.ts          分层记忆测试
 
 ```bash
 git clone <your-repo-or-local-copy>
-cd openclaw-memory-hybrid
+cd openclaw-memory-domfirst
 npm install
 npm test
 npm run build
@@ -214,13 +214,13 @@ npm run build
 {
   "plugins": {
     "slots": {
-      "contextEngine": "openclaw-memory-hybrid"
+      "contextEngine": "openclaw-memory-domfirst"
     },
     "entries": {
-      "openclaw-memory-hybrid": {
+      "openclaw-memory-domfirst": {
         "enabled": true,
         "config": {
-          "dbPath": "~/.openclaw/openclaw-memory-hybrid.db",
+          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
           "teamId": "team-default",
           "defaultAgentId": "agent-main",
           "defaultProjectId": "project-main",

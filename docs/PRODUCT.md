@@ -1,6 +1,6 @@
 # Product Overview
 
-`openclaw-memory-hybrid` is a local-first memory engine for OpenClaw built on the `graph-memory` core and extended for real multi-agent work.
+`openclaw-memory-domfirst` is a local-first memory engine for OpenClaw built on the `graph-memory` core and extended for real multi-agent work.
 
 ## What Users Experience
 

@@ -72,18 +72,26 @@ export function buildSystemPromptAddition(params: {
   return sections.join("\n");
 }
 
+type AssembleParams = {
+  tokenBudget: number;
+  activeNodes: GmNode[];
+  activeEdges: GmEdge[];
+  recalledNodes: GmNode[];
+  recalledEdges: GmEdge[];
+  timeline?: RecallResult["timeline"];
+  timelineSummary?: string;
+  getCommunitySummary?: (communityId: string) => { summary: string } | null;
+  getEpisodicMessages?: (sessionIds: string[], beforeTs: number, limitChars: number) => Array<{ role: string; text: string }>;
+};
+
 export function assembleContext(
-  db: DatabaseSyncInstance,
-  params: {
-    tokenBudget: number;
-    activeNodes: GmNode[];
-    activeEdges: GmEdge[];
-    recalledNodes: GmNode[];
-    recalledEdges: GmEdge[];
-    timeline?: RecallResult["timeline"];
-    timelineSummary?: string;
-  },
+  dbOrParams: DatabaseSyncInstance | AssembleParams,
+  maybeParams?: AssembleParams,
 ): { xml: string | null; systemPrompt: string; tokens: number; episodicXml: string; episodicTokens: number; temporalXml: string } {
+  const db = maybeParams ? dbOrParams as DatabaseSyncInstance : null;
+  const params = (maybeParams ?? dbOrParams) as AssembleParams;
+  const getCommunity = params.getCommunitySummary ?? (db ? (communityId: string) => getCommunitySummary(db, communityId) : undefined);
+  const getEpisodes = params.getEpisodicMessages ?? (db ? (sessionIds: string[], beforeTs: number, limitChars: number) => getEpisodicMessages(db, sessionIds, beforeTs, limitChars) : undefined);
   const map = new Map<string, GmNode & { src: "active" | "recalled" }>();
   for (const node of params.recalledNodes) map.set(node.id, { ...node, src: "recalled" });
   for (const node of params.activeNodes) map.set(node.id, { ...node, src: "active" });
@@ -130,7 +138,7 @@ export function assembleContext(
 
   const xmlParts: string[] = [];
   for (const [communityId, members] of byCommunity) {
-    const summary = getCommunitySummary(db, communityId);
+    const summary = getCommunity?.(communityId) ?? null;
     const label = summary ? escapeXml(summary.summary) : communityId;
     xmlParts.push(`  <community id="${communityId}" desc="${label}">`);
     for (const node of members) {
@@ -178,7 +186,7 @@ export function assembleContext(
   for (const node of topNodes) {
     if (!node.sourceSessions?.length) continue;
     const recentSessions = node.sourceSessions.slice(-2);
-    const messages = getEpisodicMessages(db, recentSessions, node.updatedAt, 500);
+    const messages = getEpisodes?.(recentSessions, node.updatedAt, 500) ?? [];
     if (!messages.length) continue;
     const lines = messages.map((message) =>
       `    [${message.role.toUpperCase()}] ${escapeXml(message.text.slice(0, 200))}`,

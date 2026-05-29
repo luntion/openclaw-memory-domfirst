@@ -1,11 +1,11 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import { getDb } from "./src/store/db.ts";
+import { createBackendRuntime } from "./src/backend/factory.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
 import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
 import { DomFirstMemoryEngine } from "./src/domfirst/engine.ts";
-import { upsertScopedNode } from "./src/domfirst/store.ts";
 
 function readProviderModel(apiConfig: unknown): { provider: string; model: string } {
   let raw = "";
@@ -31,6 +31,25 @@ function ctxFromHook(input: any, cfg: GmConfig, sessionId?: string) {
     projectId: input?.projectId ?? cfg.defaultProjectId,
     teamId: input?.teamId ?? cfg.teamId,
     userId: input?.userId,
+  };
+}
+
+function mergeConfig(partial?: Partial<GmConfig>): GmConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...(partial ?? {}),
+    backend: {
+      ...DEFAULT_CONFIG.backend,
+      ...(partial?.backend ?? {}),
+      graphiti: {
+        ...DEFAULT_CONFIG.backend.graphiti,
+        ...(partial?.backend?.graphiti ?? {}),
+      },
+      neo4j: {
+        ...DEFAULT_CONFIG.backend.neo4j,
+        ...(partial?.backend?.neo4j ?? {}),
+      },
+    },
   };
 }
 
@@ -76,7 +95,7 @@ function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["se
   return lines.join("\n").trim();
 }
 
-function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]>): string {
+function formatInspectResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["inspect"]>>): string {
   const lines: string[] = [];
   if (payload.nodes.length) {
     lines.push("Current nodes:");
@@ -100,7 +119,7 @@ function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]
   return lines.length ? lines.join("\n").trim() : "No matching memory found.";
 }
 
-function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidates"]>): string {
+function formatCandidateResult(nodes: Awaited<ReturnType<DomFirstMemoryEngine["candidates"]>>): string {
   if (!nodes.length) return "No promotion candidates found.";
   return nodes.map((node) =>
     [
@@ -111,26 +130,54 @@ function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidate
   ).join("\n\n");
 }
 
+function formatLineageResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["lineage"]>>): string {
+  const lines: string[] = [];
+  lines.push(`Memory: ${payload.name}`);
+  if (payload.sources.length) {
+    lines.push("");
+    lines.push("Sources:");
+    for (const source of payload.sources.slice(0, 8)) {
+      lines.push(`[${source.scopeType}] ${source.scopeId} promotion=${source.promotionState} verification=${source.verificationCount} confidence=${source.confidence}`);
+    }
+  }
+  if (payload.versions.length) {
+    lines.push("");
+    lines.push("Versions:");
+    for (const version of payload.versions.slice(0, 6)) {
+      lines.push(`v${version.versionNo} ${version.description}`.trim());
+    }
+  }
+  return lines.join("\n").trim();
+}
+
+function formatAuditResult(items: Awaited<ReturnType<DomFirstMemoryEngine["audit"]>>): string {
+  if (!items.length) return "No audit findings.";
+  return items.map((item) =>
+    `${item.severity.toUpperCase()} [${item.scopeType}] ${item.name}\n${item.reason}\nstatus=${item.status} promotion=${item.promotionState} verification=${item.verificationCount} confidence=${item.confidence}`,
+  ).join("\n\n");
+}
+
 const plugin = {
   id: "openclaw-memory-domfirst",
   name: "OpenClaw Memory DomFirst",
   kind: "context-engine" as const,
 
   register(api: OpenClawPluginApi) {
-    const cfg: GmConfig = { ...DEFAULT_CONFIG, ...((api.pluginConfig ?? {}) as object) };
-    const db = getDb(cfg.dbPath);
+    const cfg = mergeConfig((api.pluginConfig ?? {}) as Partial<GmConfig>);
+    const localDb = getDb(cfg.dbPath);
+    const runtime = createBackendRuntime(localDb, cfg);
     const { provider, model } = readProviderModel(api.config);
     const llm = createCompleteFn(provider, model, cfg.llm);
-    const engine = new DomFirstMemoryEngine(db, cfg, llm, api.logger);
+    const engine = new DomFirstMemoryEngine(runtime, localDb, cfg, llm, api.logger);
 
     createEmbedFn(cfg.embedding)
       .then((embed) => {
         engine.setEmbedFn(embed);
-        api.logger.info(`[openclaw-memory-domfirst] ready | db=${cfg.dbPath} | provider=${provider} | model=${model}`);
+        api.logger.info(`[openclaw-memory-domfirst] ready | backend=${cfg.backend.mode} | db=${cfg.dbPath} | provider=${provider} | model=${model}`);
       })
       .catch(() => {
         engine.setEmbedFn(null);
-        api.logger.info(`[openclaw-memory-domfirst] ready in FTS fallback mode | db=${cfg.dbPath}`);
+        api.logger.info(`[openclaw-memory-domfirst] ready without embeddings | backend=${cfg.backend.mode} | db=${cfg.dbPath}`);
       });
 
     api.registerContextEngine("openclaw-memory-domfirst", () => ({
@@ -207,8 +254,7 @@ const plugin = {
         }),
         async execute(_toolCallId: string, params: any) {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const { node } = upsertScopedNode(
-            db,
+          const { node } = await engine.remember(
             {
               type: params.type,
               name: params.name,
@@ -235,7 +281,7 @@ const plugin = {
         parameters: Type.Object({}),
         async execute() {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const stats = engine.stats(ctx);
+          const stats = await engine.stats(ctx);
           return {
             content: [{ type: "text", text: `Nodes=${stats.totalNodes}, Edges=${stats.totalEdges}, Communities=${stats.communities}` }],
             details: stats,
@@ -256,7 +302,7 @@ const plugin = {
         }),
         async execute(_toolCallId: string, params: { name: string; explicit?: boolean }) {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const result = engine.promote(params.name, ctx, params.explicit === true);
+          const result = await engine.promote(params.name, ctx, params.explicit === true);
           return {
             content: [{ type: "text", text: result.promoted ? `Promoted ${params.name} to team memory.` : `Promotion skipped: ${result.reason}` }],
             details: result,
@@ -276,7 +322,7 @@ const plugin = {
         }),
         async execute(_toolCallId: string, params: { root?: string }) {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const result = engine.reindex(params.root ?? process.cwd(), ctx);
+          const result = await engine.reindex(params.root ?? process.cwd(), ctx);
           const indexed = result.filter((item) => item.indexed).length;
           return {
             content: [{ type: "text", text: `Indexed ${indexed}/${result.length} knowledge files.` }],
@@ -298,7 +344,7 @@ const plugin = {
         }),
         async execute(_toolCallId: string, params: { name: string; includeTeam?: boolean }) {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const result = engine.inspect(params.name, ctx, params.includeTeam !== false);
+          const result = await engine.inspect(params.name, ctx, params.includeTeam !== false);
           return {
             content: [{ type: "text", text: formatInspectResult(result) }],
             details: result,
@@ -319,7 +365,7 @@ const plugin = {
         }),
         async execute(_toolCallId: string, params: { limit?: number; includeTeam?: boolean }) {
           const ctx = ctxFromHook(toolCtx, cfg);
-          const result = engine.candidates(ctx, params.includeTeam !== false, params.limit ?? 20);
+          const result = await engine.candidates(ctx, params.includeTeam !== false, params.limit ?? 20);
           return {
             content: [{ type: "text", text: formatCandidateResult(result) }],
             details: result,
@@ -327,6 +373,69 @@ const plugin = {
         },
       }),
       { name: "ocm_candidates" },
+    );
+
+    api.registerTool(
+      (toolCtx: any) => ({
+        name: "ocm_lineage",
+        label: "Memory Lineage",
+        description: "Inspect source lineage and version chain for a memory item.",
+        parameters: Type.Object({
+          name: Type.String(),
+          includeTeam: Type.Optional(Type.Boolean()),
+        }),
+        async execute(_toolCallId: string, params: { name: string; includeTeam?: boolean }) {
+          const ctx = ctxFromHook(toolCtx, cfg);
+          const result = await engine.lineage(params.name, ctx, params.includeTeam !== false);
+          return {
+            content: [{ type: "text", text: formatLineageResult(result) }],
+            details: result,
+          };
+        },
+      }),
+      { name: "ocm_lineage" },
+    );
+
+    api.registerTool(
+      (toolCtx: any) => ({
+        name: "ocm_review_candidate",
+        label: "Review Candidate",
+        description: "Approve, reject, defer, or merge a promotion candidate.",
+        parameters: Type.Object({
+          name: Type.String(),
+          action: Type.String(),
+          targetName: Type.Optional(Type.String()),
+        }),
+        async execute(_toolCallId: string, params: { name: string; action: any; targetName?: string }) {
+          const ctx = ctxFromHook(toolCtx, cfg);
+          const result = await engine.reviewCandidate(params.name, ctx, params.action, params.targetName);
+          return {
+            content: [{ type: "text", text: result.ok ? `${params.action} applied to ${params.name}` : `Review failed: ${result.reason}` }],
+            details: result,
+          };
+        },
+      }),
+      { name: "ocm_review_candidate" },
+    );
+
+    api.registerTool(
+      (toolCtx: any) => ({
+        name: "ocm_audit",
+        label: "Audit Shared Memory",
+        description: "Audit scoped memory for stale, disputed, or weakly verified items.",
+        parameters: Type.Object({
+          includeTeam: Type.Optional(Type.Boolean()),
+        }),
+        async execute(_toolCallId: string, params: { includeTeam?: boolean }) {
+          const ctx = ctxFromHook(toolCtx, cfg);
+          const result = await engine.audit(ctx, params.includeTeam !== false);
+          return {
+            content: [{ type: "text", text: formatAuditResult(result) }],
+            details: result,
+          };
+        },
+      }),
+      { name: "ocm_audit" },
     );
   },
 };

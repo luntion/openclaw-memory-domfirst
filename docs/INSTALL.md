@@ -63,6 +63,21 @@ Example config fragment:
             "baseURL": "https://api.openai.com/v1",
             "model": "text-embedding-3-small",
             "dimensions": 512
+          },
+          "backend": {
+            "mode": "graphiti-neo4j",
+            "graphiti": {
+              "baseUrl": "http://127.0.0.1:8000",
+              "groupPrefix": "ocm",
+              "timeoutMs": 20000
+            },
+            "neo4j": {
+              "uri": "bolt://127.0.0.1:7687",
+              "username": "neo4j",
+              "password": "YOUR_NEO4J_PASSWORD",
+              "database": "neo4j",
+              "workspace": "main"
+            }
           }
         }
       }

@@ -2,7 +2,7 @@
   "kind": "context-engine",
   "id": "openclaw-memory-domfirst",
   "name": "OpenClaw Memory DomFirst",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Scoped elastic memory engine with layered recall and local service",
   "configSchema": {
     "type": "object",
@@ -71,6 +71,66 @@
           "apiKey": { "type": "string" },
           "baseURL": { "type": "string" },
           "model": { "type": "string" }
+        }
+      },
+      "backend": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "default": "sqlite",
+            "description": "Storage backend mode: sqlite or graphiti-neo4j"
+          },
+          "graphiti": {
+            "type": "object",
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "default": "http://127.0.0.1:8000",
+                "description": "Graphiti service base URL"
+              },
+              "groupPrefix": {
+                "type": "string",
+                "default": "ocm",
+                "description": "Graphiti group prefix used for scope namespaces"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "default": 20000,
+                "description": "Graphiti request timeout in milliseconds"
+              }
+            }
+          },
+          "neo4j": {
+            "type": "object",
+            "properties": {
+              "uri": {
+                "type": "string",
+                "default": "bolt://127.0.0.1:7687",
+                "description": "Neo4j Bolt URI"
+              },
+              "username": {
+                "type": "string",
+                "default": "neo4j",
+                "description": "Neo4j username"
+              },
+              "password": {
+                "type": "string",
+                "default": "password",
+                "description": "Neo4j password"
+              },
+              "database": {
+                "type": "string",
+                "default": "neo4j",
+                "description": "Neo4j database name"
+              },
+              "workspace": {
+                "type": "string",
+                "default": "main",
+                "description": "Logical workspace namespace used by DomFirst memory nodes"
+              }
+            }
+          }
         }
       }
     }

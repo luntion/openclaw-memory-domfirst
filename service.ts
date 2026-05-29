@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { getDb } from "./src/store/db.ts";
+import { createBackendRuntime } from "./src/backend/factory.ts";
 import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
@@ -31,7 +32,7 @@ function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["se
   return lines.join("\n").trim();
 }
 
-function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]>): string {
+function formatInspectResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["inspect"]>>): string {
   const lines: string[] = [];
   if (payload.nodes.length) {
     lines.push("Current nodes:");
@@ -54,7 +55,7 @@ function formatInspectResult(payload: ReturnType<DomFirstMemoryEngine["inspect"]
   return lines.length ? lines.join("\n").trim() : "No matching memory found.";
 }
 
-function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidates"]>): string {
+function formatCandidateResult(nodes: Awaited<ReturnType<DomFirstMemoryEngine["candidates"]>>): string {
   if (!nodes.length) return "No promotion candidates found.";
   return nodes.map((node) =>
     [
@@ -62,6 +63,30 @@ function formatCandidateResult(nodes: ReturnType<DomFirstMemoryEngine["candidate
       node.description,
       `promotion=${node.promotionState} verification=${node.verificationCount} confidence=${node.confidence}`,
     ].join("\n"),
+  ).join("\n\n");
+}
+
+function formatLineageResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["lineage"]>>): string {
+  const lines = [`Memory: ${payload.name}`];
+  if (payload.sources.length) {
+    lines.push("", "Sources:");
+    for (const source of payload.sources.slice(0, 8)) {
+      lines.push(`[${source.scopeType}] ${source.scopeId} promotion=${source.promotionState} verification=${source.verificationCount} confidence=${source.confidence}`);
+    }
+  }
+  if (payload.versions.length) {
+    lines.push("", "Versions:");
+    for (const version of payload.versions.slice(0, 6)) {
+      lines.push(`v${version.versionNo} ${version.description}`.trim());
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatAuditResult(items: Awaited<ReturnType<DomFirstMemoryEngine["audit"]>>): string {
+  if (!items.length) return "No audit findings.";
+  return items.map((item) =>
+    `${item.severity.toUpperCase()} [${item.scopeType}] ${item.name}\n${item.reason}\nstatus=${item.status} promotion=${item.promotionState} verification=${item.verificationCount} confidence=${item.confidence}`,
   ).join("\n\n");
 }
 
@@ -74,6 +99,23 @@ function readConfig(): GmConfig {
     teamId: process.env.OCM_TEAM_ID ?? DEFAULT_CONFIG.teamId,
     defaultAgentId: process.env.OCM_AGENT_ID ?? DEFAULT_CONFIG.defaultAgentId,
     defaultProjectId: process.env.OCM_PROJECT_ID ?? DEFAULT_CONFIG.defaultProjectId,
+    backend: {
+      mode: (process.env.OCM_BACKEND_MODE as GmConfig["backend"]["mode"]) ?? DEFAULT_CONFIG.backend.mode,
+      graphiti: {
+        ...DEFAULT_CONFIG.backend.graphiti,
+        baseUrl: process.env.OCM_GRAPHITI_URL ?? DEFAULT_CONFIG.backend.graphiti.baseUrl,
+        groupPrefix: process.env.OCM_GRAPHITI_GROUP_PREFIX ?? DEFAULT_CONFIG.backend.graphiti.groupPrefix,
+        timeoutMs: Number(process.env.OCM_GRAPHITI_TIMEOUT_MS ?? DEFAULT_CONFIG.backend.graphiti.timeoutMs),
+      },
+      neo4j: {
+        ...DEFAULT_CONFIG.backend.neo4j,
+        uri: process.env.OCM_NEO4J_URI ?? DEFAULT_CONFIG.backend.neo4j.uri,
+        username: process.env.OCM_NEO4J_USER ?? DEFAULT_CONFIG.backend.neo4j.username,
+        password: process.env.OCM_NEO4J_PASSWORD ?? DEFAULT_CONFIG.backend.neo4j.password,
+        database: process.env.OCM_NEO4J_DATABASE ?? DEFAULT_CONFIG.backend.neo4j.database,
+        workspace: process.env.OCM_NEO4J_WORKSPACE ?? DEFAULT_CONFIG.backend.neo4j.workspace,
+      },
+    },
   };
 }
 
@@ -89,9 +131,10 @@ function readProviderModel(): { provider: string; model: string } {
 async function main(): Promise<void> {
   const cfg = readConfig();
   const db = getDb(cfg.dbPath);
+  const runtime = createBackendRuntime(db, cfg);
   const { provider, model } = readProviderModel();
   const llm = createCompleteFn(provider, model, cfg.llm);
-  const engine = new DomFirstMemoryEngine(db, cfg, llm, console);
+  const engine = new DomFirstMemoryEngine(runtime, db, cfg, llm, console);
   const embed = await createEmbedFn(cfg.embedding).catch(() => null);
   engine.setEmbedFn(embed);
 
@@ -102,7 +145,7 @@ async function main(): Promise<void> {
 
     try {
       if (req.method === "GET" && url.pathname === "/health") {
-        return void res.end(JSON.stringify({ status: "ok", service: "ocm-memoryd" }));
+        return void res.end(JSON.stringify({ status: "ok", service: "ocm-memoryd", backend: await engine.health() }));
       }
 
       if (req.method === "GET" && url.pathname === "/stats") {
@@ -112,7 +155,7 @@ async function main(): Promise<void> {
           projectId: url.searchParams.get("projectId") ?? cfg.defaultProjectId,
           teamId: url.searchParams.get("teamId") ?? cfg.teamId,
         });
-        return void res.end(JSON.stringify(engine.stats(ctx)));
+        return void res.end(JSON.stringify(await engine.stats(ctx)));
       }
 
       if (req.method === "POST" && url.pathname === "/recall-plan") {
@@ -138,20 +181,38 @@ async function main(): Promise<void> {
 
       if (req.method === "POST" && url.pathname === "/promote") {
         const ctx = engine.buildScopeContext(body.ctx ?? {});
-        const result = engine.promote(String(body.name ?? ""), ctx, Boolean(body.explicit));
+        const result = await engine.promote(String(body.name ?? ""), ctx, Boolean(body.explicit));
         return void res.end(JSON.stringify(result));
       }
 
       if (req.method === "POST" && url.pathname === "/inspect") {
         const ctx = engine.buildScopeContext(body.ctx ?? {});
-        const result = engine.inspect(String(body.name ?? ""), ctx, body.includeTeam !== false);
+        const result = await engine.inspect(String(body.name ?? ""), ctx, body.includeTeam !== false);
         return void res.end(JSON.stringify({ ...result, displayText: formatInspectResult(result) }));
       }
 
       if (req.method === "POST" && url.pathname === "/candidates") {
         const ctx = engine.buildScopeContext(body.ctx ?? {});
-        const result = engine.candidates(ctx, body.includeTeam !== false, Number(body.limit ?? 20));
+        const result = await engine.candidates(ctx, body.includeTeam !== false, Number(body.limit ?? 20));
         return void res.end(JSON.stringify({ items: result, displayText: formatCandidateResult(result) }));
+      }
+
+      if (req.method === "POST" && url.pathname === "/lineage") {
+        const ctx = engine.buildScopeContext(body.ctx ?? {});
+        const result = await engine.lineage(String(body.name ?? ""), ctx, body.includeTeam !== false);
+        return void res.end(JSON.stringify({ ...result, displayText: formatLineageResult(result) }));
+      }
+
+      if (req.method === "POST" && url.pathname === "/candidates/review") {
+        const ctx = engine.buildScopeContext(body.ctx ?? {});
+        const result = await engine.reviewCandidate(String(body.name ?? ""), ctx, String(body.action ?? "defer") as any, body.targetName ? String(body.targetName) : undefined);
+        return void res.end(JSON.stringify(result));
+      }
+
+      if (req.method === "POST" && url.pathname === "/audit") {
+        const ctx = engine.buildScopeContext(body.ctx ?? {});
+        const result = await engine.audit(ctx, body.includeTeam !== false);
+        return void res.end(JSON.stringify({ items: result, displayText: formatAuditResult(result) }));
       }
 
       if (req.method === "POST" && url.pathname === "/maintenance/run") {

@@ -1,6 +1,6 @@
 {
   "name": "openclaw-memory-domfirst",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Layered temporal memory engine for OpenClaw",
   "main": "index.ts",
   "type": "module",
@@ -29,6 +29,7 @@
   "dependencies": {
     "@photostructure/sqlite": "^1.0.0",
     "@sinclair/typebox": "^0.34.48",
+    "neo4j-driver": "^5.28.3",
     "openai": "^4.47.0"
   },
   "devDependencies": {

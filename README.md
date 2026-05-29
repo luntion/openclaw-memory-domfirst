@@ -193,6 +193,8 @@ Example:
         "enabled": true,
         "config": {
           "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
+          "serviceHost": "127.0.0.1",
+          "servicePort": 42690,
           "teamId": "team-default",
           "defaultAgentId": "agent-main",
           "defaultProjectId": "project-main",
@@ -206,6 +208,21 @@ Example:
             "baseURL": "https://api.openai.com/v1",
             "model": "text-embedding-3-small",
             "dimensions": 512
+          },
+          "backend": {
+            "mode": "graphiti-neo4j",
+            "graphiti": {
+              "baseUrl": "http://127.0.0.1:8000",
+              "groupPrefix": "ocm",
+              "timeoutMs": 20000
+            },
+            "neo4j": {
+              "uri": "bolt://127.0.0.1:7687",
+              "username": "neo4j",
+              "password": "YOUR_NEO4J_PASSWORD",
+              "database": "neo4j",
+              "workspace": "main"
+            }
           }
         }
       }
@@ -219,6 +236,9 @@ Notes:
 - `llm` is recommended for extraction quality
 - `embedding` is optional
 - if embedding is missing, the system degrades to FTS-based recall
+- `backend.mode = "graphiti-neo4j"` enables the Neo4j + Graphiti memory core
+- `backend.neo4j.uri` may point to local Neo4j Desktop or an external Neo4j instance
+- `backend.graphiti.baseUrl` may point to a local or external Graphiti service
 
 ## Run The Local Service
 

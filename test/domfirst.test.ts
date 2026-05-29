@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG } from "../src/types.ts";
 import { classifyNodeScope } from "../src/domfirst/classify.ts";
 import { getNodeVersions } from "../src/store/store.ts";
 import { DomFirstMemoryEngine } from "../src/domfirst/engine.ts";
+import { createSQLiteRuntime } from "../src/backend/sqlite.ts";
 
 let db: ReturnType<typeof createTestDb>;
 
@@ -289,7 +290,7 @@ describe("scoped recaller", () => {
 });
 
 describe("admin/debug memory access", () => {
-  it("inspects current nodes and version history by name", () => {
+  it("inspects current nodes and version history by name", async () => {
     upsertScopedNode(db, {
       type: "SKILL",
       name: "inspect-skill",
@@ -304,8 +305,8 @@ describe("admin/debug memory access", () => {
       content: "new content",
     }, ctx, { scopeType: "agent", scopeId: "agent-a", supersededBy: "inspect-skill-v2" });
 
-    const engine = new DomFirstMemoryEngine(db, DEFAULT_CONFIG, async () => "");
-    const result = engine.inspect("inspect-skill", ctx, false);
+    const engine = new DomFirstMemoryEngine(createSQLiteRuntime(db, DEFAULT_CONFIG), db, DEFAULT_CONFIG, async () => "");
+    const result = await engine.inspect("inspect-skill", ctx, false);
 
     expect(result.nodes.length).toBeGreaterThanOrEqual(1);
     expect(result.nodes[0].content).toContain("new content");
@@ -313,7 +314,7 @@ describe("admin/debug memory access", () => {
     expect(result.versions[0].content).toContain("old content");
   });
 
-  it("lists promotion candidates in scoped memory", () => {
+  it("lists promotion candidates in scoped memory", async () => {
     const { node } = upsertScopedNode(db, {
       type: "SKILL",
       name: "candidate-skill",
@@ -322,8 +323,8 @@ describe("admin/debug memory access", () => {
     }, ctx, { scopeType: "agent", scopeId: "agent-a" });
 
     markPromotionCandidate(db, node.id);
-    const engine = new DomFirstMemoryEngine(db, DEFAULT_CONFIG, async () => "");
-    const items = engine.candidates(ctx, false, 10);
+    const engine = new DomFirstMemoryEngine(createSQLiteRuntime(db, DEFAULT_CONFIG), db, DEFAULT_CONFIG, async () => "");
+    const items = await engine.candidates(ctx, false, 10);
 
     expect(items.some((item) => item.name === "candidate-skill")).toBe(true);
   });

@@ -5,11 +5,13 @@
  */
 
 export type NodeType = "TASK" | "SKILL" | "EVENT";
-export type NodeStatus = "active" | "deprecated";
+export type NodeStatus = "active" | "deprecated" | "stale" | "superseded" | "disputed";
 export type ScopeType = "session" | "agent" | "project" | "team";
 export type Visibility = "private" | "shared" | "inherited";
 export type PromotionState = "private" | "candidate" | "promoted";
 export type RecallDepth = "L0" | "L1" | "L2" | "L3";
+export type BackendMode = "sqlite" | "graphiti-neo4j";
+export type CandidateReviewAction = "approve" | "reject" | "defer" | "merge-into-existing";
 
 export interface ScopeFilter {
   scopeType: ScopeType;
@@ -164,6 +166,42 @@ export interface RecallResult {
   }>;
 }
 
+export interface MemoryLineage {
+  name: string;
+  nodes: GmNode[];
+  versions: GmNodeVersion[];
+  sources: Array<{
+    scopeType: ScopeType;
+    scopeId: string;
+    sourceAgentId?: string | null;
+    sourceSessionId?: string | null;
+    projectId?: string | null;
+    promotionState: PromotionState;
+    confidence: number;
+    verificationCount: number;
+    status: NodeStatus;
+  }>;
+}
+
+export interface AuditFinding {
+  name: string;
+  scopeType: ScopeType;
+  scopeId: string;
+  severity: "low" | "medium" | "high";
+  reason: string;
+  status: NodeStatus;
+  promotionState: PromotionState;
+  confidence: number;
+  verificationCount: number;
+}
+
+export interface CandidateReviewResult {
+  ok: boolean;
+  action: CandidateReviewAction;
+  name: string;
+  reason: string;
+}
+
 export interface RecallPlan {
   depth: RecallDepth;
   includeTeam: boolean;
@@ -187,6 +225,26 @@ export interface EmbeddingConfig {
   dimensions?: number;
 }
 
+export interface GraphitiBackendConfig {
+  baseUrl: string;
+  groupPrefix: string;
+  timeoutMs: number;
+}
+
+export interface Neo4jBackendConfig {
+  uri: string;
+  username: string;
+  password: string;
+  database: string;
+  workspace: string;
+}
+
+export interface BackendConfig {
+  mode: BackendMode;
+  graphiti: GraphitiBackendConfig;
+  neo4j: Neo4jBackendConfig;
+}
+
 export interface GmConfig {
   dbPath: string;
   compactTurnCount: number;
@@ -205,6 +263,7 @@ export interface GmConfig {
     baseURL?: string;
     model?: string;
   };
+  backend: BackendConfig;
   dedupThreshold: number;
   pagerankDamping: number;
   pagerankIterations: number;
@@ -221,6 +280,21 @@ export const DEFAULT_CONFIG: GmConfig = {
   teamId: "team-default",
   defaultAgentId: "agent-main",
   knowledgeMarkers: ["knowledge: true", "memory-scope:", "team-memory: true"],
+  backend: {
+    mode: "sqlite",
+    graphiti: {
+      baseUrl: "http://127.0.0.1:8000",
+      groupPrefix: "ocm",
+      timeoutMs: 20_000,
+    },
+    neo4j: {
+      uri: "bolt://127.0.0.1:7687",
+      username: "neo4j",
+      password: "password",
+      database: "neo4j",
+      workspace: "main",
+    },
+  },
   dedupThreshold: 0.9,
   pagerankDamping: 0.85,
   pagerankIterations: 20,

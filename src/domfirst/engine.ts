@@ -1,53 +1,40 @@
-import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { EmbedFn } from "../engine/embed.ts";
 import type { CompleteFn } from "../engine/llm.ts";
 import type {
+  CandidateReviewAction,
   GmConfig,
   GmNode,
   RecallPlan,
   ScopeContext,
-  ScopeFilter,
 } from "../types.ts";
+import type { BackendRuntime } from "../backend/types.ts";
 import { Extractor } from "../extractor/extract.ts";
-import { getUnextracted, markExtracted, saveMessage, edgesFrom, edgesTo, getMessages } from "../store/store.ts";
+import { getCommunitySummary } from "../store/store.ts";
 import { assembleContext } from "../format/assemble.ts";
-import { runMaintenance } from "../graph/maintenance.ts";
 import { planRecall } from "./recall-plan.ts";
-import { DomFirstRecaller } from "./recaller.ts";
-import { defaultMetadata, buildScopeFilters } from "./scope.ts";
-import {
-  findScopedNodeByName,
-  getScopedSessionNodes,
-  getScopedStats,
-  inspectScopedMemoryByName,
-  listScopedPromotionCandidates,
-  upsertScopedEdge,
-  upsertScopedNode,
-} from "./store.ts";
-import { discoverKnowledgeFiles, indexKnowledgeFiles } from "./files.ts";
-import { markPromotionCandidate, maybePromoteToTeam } from "./promotion.ts";
+import { discoverKnowledgeFiles, type IndexedFileResult } from "./files.ts";
 import { classifyEdgeScope, classifyNodeScope, extractEventTime, scopeIdFor } from "./classify.ts";
+import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 
 export class DomFirstMemoryEngine {
   private extractor: Extractor;
-  private recaller: DomFirstRecaller;
   private embedFn: EmbedFn | null = null;
   private msgSeq = new Map<string, number>();
   private extractChain = new Map<string, Promise<void>>();
 
   constructor(
-    private db: DatabaseSyncInstance,
+    private runtime: BackendRuntime,
+    private localDb: DatabaseSyncInstance,
     private cfg: GmConfig,
     private llm: CompleteFn,
     private logger?: { info?: (...args: any[]) => void; warn?: (...args: any[]) => void; error?: (...args: any[]) => void },
   ) {
     this.extractor = new Extractor(cfg, llm);
-    this.recaller = new DomFirstRecaller(db, cfg);
   }
 
   setEmbedFn(fn: EmbedFn | null): void {
     this.embedFn = fn;
-    if (fn) this.recaller.setEmbedFn(fn);
+    this.runtime.recallBackend.setEmbedFn(fn);
   }
 
   buildScopeContext(input: Partial<ScopeContext>): ScopeContext {
@@ -64,12 +51,12 @@ export class DomFirstMemoryEngine {
     if (isHeartbeat) return { ingested: false };
     let seq = this.msgSeq.get(ctx.sessionId);
     if (seq === undefined) {
-      const row = this.db.prepare("SELECT MAX(turn_index) as maxTurn FROM gm_messages WHERE session_id=?").get(ctx.sessionId) as any;
-      seq = Number(row?.maxTurn) || 0;
+      const existing = this.runtime.messageStore.getMessages(ctx.sessionId);
+      seq = existing.length ? Math.max(...existing.map((row) => Number(row.turn_index ?? 0))) : 0;
     }
     seq += 1;
     this.msgSeq.set(ctx.sessionId, seq);
-    saveMessage(this.db, ctx.sessionId, seq, message.role ?? "unknown", message);
+    this.runtime.messageStore.saveMessage(ctx.sessionId, seq, message.role ?? "unknown", message);
     return { ingested: true };
   }
 
@@ -77,11 +64,12 @@ export class DomFirstMemoryEngine {
     if (!newMessages.length) return;
     const prev = this.extractChain.get(ctx.sessionId) ?? Promise.resolve();
     const next = prev.then(async () => {
-      const msgs = getUnextracted(this.db, ctx.sessionId, 50);
+      const msgs = this.runtime.messageStore.getUnextracted(ctx.sessionId, 50);
       if (!msgs.length) return;
-      const existing = getScopedSessionNodes(this.db, ctx.sessionId).map((node) => node.name);
+      const existing = (await this.runtime.graphStore.getSessionNodes(ctx.sessionId, [{ scopeType: "session", scopeIds: [ctx.sessionId] }]))
+        .map((node) => node.name);
       const result = await this.extractor.extract({ messages: msgs, existingNames: existing });
-      const conversationText = msgs.map((msg: any) => this.contentToText(msg.content)).join("\n");
+      const conversationText = msgs.map((msg) => this.contentToText(msg.content)).join("\n");
 
       const knownNodes = new Map<string, GmNode>();
       for (const candidate of result.nodes) {
@@ -89,35 +77,35 @@ export class DomFirstMemoryEngine {
         const scopeId = scopeIdFor(ctx, this.cfg.teamId, scopeType);
         const eventTime = extractEventTime(conversationText);
         const resolvedAt = /修复|fix|resolved|解决|处理好了/i.test(candidate.content) ? Date.now() : null;
-        const { node } = upsertScopedNode(
-          this.db,
+        const { node } = await this.runtime.graphStore.upsertNode(
           candidate,
           ctx,
           {
-            ...defaultMetadata(ctx, scopeType),
+            scopeType,
             scopeId,
-            visibility: scopeType === "project" ? "shared" : "private",
+            visibility: scopeType === "project" || scopeType === "team" ? "shared" : "private",
+            confidence: 0.7,
+            verificationCount: 1,
+            promotionState: scopeType === "team" ? "promoted" : "private",
             eventTime,
             resolvedAt,
           },
         );
         knownNodes.set(node.name, node);
         if (candidate.type !== "TASK" && (node.validatedCount >= 1 || /修复|fix|解决|error|故障/i.test(candidate.content))) {
-          markPromotionCandidate(this.db, node.id);
-          const refreshed = findScopedNodeByName(this.db, node.name, [{ scopeType: node.scopeType, scopeIds: [node.scopeId] }]);
-          if (refreshed) {
-            maybePromoteToTeam(this.db, refreshed, ctx, "double verification or explicit candidate");
+          await this.runtime.graphStore.markCandidate(node.id);
+          if (node.verificationCount >= 2) {
+            await this.runtime.graphStore.promote(node.name, ctx, false);
           }
         }
       }
 
       for (const edge of result.edges) {
-        const from = knownNodes.get(edge.from) ?? findScopedNodeByName(this.db, edge.from, buildScopeFilters(ctx, true));
-        const to = knownNodes.get(edge.to) ?? findScopedNodeByName(this.db, edge.to, buildScopeFilters(ctx, true));
+        const from = knownNodes.get(edge.from) ?? await this.runtime.graphStore.findNodeByName(edge.from, buildScopeFilters(ctx, true));
+        const to = knownNodes.get(edge.to) ?? await this.runtime.graphStore.findNodeByName(edge.to, buildScopeFilters(ctx, true));
         if (!from || !to) continue;
         const scopeType = classifyEdgeScope(ctx, from, to);
-        upsertScopedEdge(
-          this.db,
+        await this.runtime.graphStore.upsertEdge(
           {
             fromId: from.id,
             toId: to.id,
@@ -127,15 +115,18 @@ export class DomFirstMemoryEngine {
           },
           ctx,
           {
-            ...defaultMetadata(ctx, scopeType),
+            scopeType,
             scopeId: scopeIdFor(ctx, this.cfg.teamId, scopeType),
-            visibility: scopeType === "project" ? "shared" : "private",
+            visibility: scopeType === "project" || scopeType === "team" ? "shared" : "private",
+            confidence: 0.7,
+            verificationCount: 1,
+            promotionState: scopeType === "team" ? "promoted" : "private",
           },
         );
       }
 
-      const maxTurn = Math.max(...msgs.map((msg: any) => msg.turn_index));
-      markExtracted(this.db, ctx.sessionId, maxTurn);
+      const maxTurn = Math.max(...msgs.map((msg) => Number(msg.turn_index)));
+      this.runtime.messageStore.markExtracted(ctx.sessionId, maxTurn);
       this.logger?.info?.(`[openclaw-memory-domfirst] extracted ${result.nodes.length} nodes and ${result.edges.length} edges`);
     }).catch((error) => {
       this.logger?.error?.(`[openclaw-memory-domfirst] afterTurn extract failed: ${error}`);
@@ -150,8 +141,16 @@ export class DomFirstMemoryEngine {
 
   async search(query: string, ctx: ScopeContext, overridePlan?: Partial<RecallPlan>) {
     const plan = { ...this.planRecall(query, ctx), ...overridePlan } as RecallPlan;
-    const result = await this.recaller.recall(query, plan);
+    const result = await this.runtime.recallBackend.recall(query, plan);
     return { plan, result };
+  }
+
+  remember(
+    input: { type: GmNode["type"]; name: string; description: string; content: string },
+    ctx: ScopeContext,
+    meta?: Record<string, unknown>,
+  ) {
+    return this.runtime.graphStore.upsertNode(input, ctx, meta as any);
   }
 
   async assemble(params: {
@@ -161,9 +160,9 @@ export class DomFirstMemoryEngine {
   }): Promise<{ messages: any[]; estimatedTokens: number; systemPromptAddition?: string; recallPlan: RecallPlan }> {
     const query = params.prompt?.trim() || this.lastUserText(params.messages) || "";
     const recallPlan = this.planRecall(query, params.ctx);
-    const recalled = await this.recaller.recall(query, recallPlan);
-    const activeNodes = getScopedSessionNodes(this.db, params.ctx.sessionId, [{ scopeType: "session", scopeIds: [params.ctx.sessionId] }]);
-    const activeEdges = activeNodes.flatMap((node) => [...edgesFrom(this.db, node.id), ...edgesTo(this.db, node.id)]);
+    const recalled = await this.runtime.recallBackend.recall(query, recallPlan);
+    const activeNodes = await this.runtime.graphStore.getSessionNodes(params.ctx.sessionId, [{ scopeType: "session", scopeIds: [params.ctx.sessionId] }]);
+    const activeEdges = dedupeEdges((await Promise.all(activeNodes.map((node) => this.runtime.graphStore.getEdgesForNode(node.id)))).flat());
     const recallForContext =
       recallPlan.depth === "L1"
         ? { ...recalled, nodes: recalled.nodes.slice(0, 3), edges: [] }
@@ -171,7 +170,7 @@ export class DomFirstMemoryEngine {
           ? { ...recalled, nodes: recalled.nodes.slice(0, 5), edges: recalled.edges.slice(0, 5) }
           : recalled;
 
-    const { xml, systemPrompt, tokens, episodicXml, temporalXml } = assembleContext(this.db, {
+    const { xml, systemPrompt, tokens, episodicXml, temporalXml } = assembleContext({
       tokenBudget: 0,
       activeNodes,
       activeEdges,
@@ -179,6 +178,9 @@ export class DomFirstMemoryEngine {
       recalledEdges: recallForContext.edges,
       timeline: recallForContext.timeline,
       timelineSummary: recallForContext.timelineSummary,
+      getCommunitySummary: (communityId) => getCommunitySummary(this.localDb, communityId),
+      getEpisodicMessages: (sessionIds, beforeTs, limitChars) =>
+        this.runtime.messageStore.getEpisodicMessages(sessionIds, beforeTs, limitChars),
     });
 
     const systemPromptAddition = [systemPrompt, temporalXml, xml, episodicXml].filter(Boolean).join("\n\n") || undefined;
@@ -191,48 +193,92 @@ export class DomFirstMemoryEngine {
   }
 
   stats(ctx: ScopeContext) {
-    return getScopedStats(this.db, buildScopeFilters(ctx, true));
+    return this.runtime.graphStore.stats(buildScopeFilters(ctx, true));
   }
 
   inspect(name: string, ctx: ScopeContext, includeTeam = true) {
-    const filters = buildScopeFilters(ctx, includeTeam);
-    return inspectScopedMemoryByName(this.db, name, filters);
+    return this.runtime.graphStore.inspect(name, buildScopeFilters(ctx, includeTeam));
   }
 
   candidates(ctx: ScopeContext, includeTeam = true, limit = 20) {
-    const filters = buildScopeFilters(ctx, includeTeam);
-    return listScopedPromotionCandidates(this.db, filters, limit);
-  }
-
-  async runMaintenance(): Promise<any> {
-    return runMaintenance(this.db, this.cfg, this.llm, this.embedFn ?? undefined);
+    return this.runtime.graphStore.listCandidates(buildScopeFilters(ctx, includeTeam), limit);
   }
 
   promote(name: string, ctx: ScopeContext, explicit = false) {
-    const node = findScopedNodeByName(this.db, name, buildScopeFilters(ctx, false));
-    if (!node) {
-      return { promoted: false, reason: "node not found" };
-    }
-    if (explicit) {
-      this.db.prepare(`
-        UPDATE gm_nodes
-        SET promotion_state='candidate',
-            verification_count = MAX(verification_count, 2),
-            confidence = MAX(confidence, 0.95),
-            updated_at = ?
-        WHERE id = ?
-      `).run(Date.now(), node.id);
-    } else {
-      markPromotionCandidate(this.db, node.id);
-    }
-    const refreshed = findScopedNodeByName(this.db, name, buildScopeFilters(ctx, false));
-    if (!refreshed) return { promoted: false, reason: "node disappeared" };
-    return maybePromoteToTeam(this.db, refreshed, ctx, explicit ? "explicit promotion" : "verified candidate");
+    return this.runtime.graphStore.promote(name, ctx, explicit);
   }
 
-  reindex(root: string, ctx: ScopeContext) {
+  lineage(name: string, ctx: ScopeContext, includeTeam = true) {
+    return this.runtime.graphStore.lineage(name, buildScopeFilters(ctx, includeTeam));
+  }
+
+  reviewCandidate(name: string, ctx: ScopeContext, action: CandidateReviewAction, targetName?: string) {
+    return this.runtime.graphStore.reviewCandidate(name, ctx, action, targetName);
+  }
+
+  audit(ctx: ScopeContext, includeTeam = true) {
+    return this.runtime.graphStore.audit(buildScopeFilters(ctx, includeTeam));
+  }
+
+  async health() {
+    return this.runtime.health();
+  }
+
+  async runMaintenance(): Promise<any> {
+    return {
+      ok: true,
+      backend: this.cfg.backend.mode,
+      skipped: this.cfg.backend.mode !== "sqlite",
+      reason: this.cfg.backend.mode === "sqlite" ? "maintenance delegated to sqlite graph routines" : "maintenance is backend-managed in graphiti-neo4j mode",
+    };
+  }
+
+  async reindex(root: string, ctx: ScopeContext): Promise<IndexedFileResult[]> {
     const files = discoverKnowledgeFiles(root, this.cfg.knowledgeMarkers);
-    return indexKnowledgeFiles(this.db, files, ctx);
+    const results: IndexedFileResult[] = [];
+    for (const file of files) {
+      try {
+        const text = await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8"));
+        const content = text.trim();
+        if (!content) {
+          results.push({ path: file, indexed: false, reason: "empty file" });
+          continue;
+        }
+        const isProject = file.replace(/\\/g, "/").includes("/memory/");
+        const scopeType = isProject ? "project" : "agent";
+        const name = file
+          .replace(/\\/g, "/")
+          .split("/")
+          .slice(-2)
+          .join("-")
+          .replace(/\.[^.]+$/, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9\u4e00-\u9fff\-]/g, "-")
+          .replace(/-{2,}/g, "-")
+          .replace(/^-|-$/g, "");
+        await this.runtime.graphStore.upsertNode(
+          {
+            type: "SKILL",
+            name,
+            description: `Knowledge file indexed from ${file}`,
+            content: `[${name}]\nSource: ${file}\nSummary: ${content.slice(0, 240)}\n\n${content}`,
+          },
+          ctx,
+          {
+            scopeType,
+            scopeId: isProject ? (ctx.projectId ?? ctx.agentId) : ctx.agentId,
+            visibility: isProject ? "shared" : "private",
+            confidence: 0.8,
+            verificationCount: 1,
+            promotionState: "private",
+          },
+        );
+        results.push({ path: file, indexed: true });
+      } catch (error) {
+        results.push({ path: file, indexed: false, reason: String(error) });
+      }
+    }
+    return results;
   }
 
   disposeSession(sessionId: string): void {
@@ -241,7 +287,7 @@ export class DomFirstMemoryEngine {
   }
 
   getRecentMessages(sessionId: string, limit = 10): any[] {
-    return getMessages(this.db, sessionId, limit);
+    return this.runtime.messageStore.getMessages(sessionId, limit);
   }
 
   private keepRecentMessages(messages: any[]): any[] {
@@ -268,13 +314,28 @@ export class DomFirstMemoryEngine {
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
       return content
-        .map((block: any) => {
-          if (typeof block?.text === "string") return block.text;
-          return "";
-        })
+        .map((block: any) => typeof block?.text === "string" ? block.text : "")
         .join("\n");
     }
     return String(content ?? "");
   }
+}
 
+function buildScopeFilters(ctx: ScopeContext, includeTeam = true) {
+  const filters: Array<{ scopeType: "session" | "agent" | "project" | "team"; scopeIds: string[] }> = [
+    { scopeType: "session" as const, scopeIds: [ctx.sessionId] },
+    { scopeType: "agent" as const, scopeIds: [ctx.agentId] },
+  ];
+  if (ctx.projectId) filters.push({ scopeType: "project" as const, scopeIds: [ctx.projectId] });
+  if (includeTeam && ctx.teamId) filters.push({ scopeType: "team" as const, scopeIds: [ctx.teamId] });
+  return filters;
+}
+
+function dedupeEdges(edges: GmNode extends never ? never : any[]) {
+  const seen = new Set<string>();
+  return edges.filter((edge) => {
+    if (seen.has(edge.id)) return false;
+    seen.add(edge.id);
+    return true;
+  });
 }

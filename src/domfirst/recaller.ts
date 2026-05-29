@@ -13,7 +13,7 @@ export class DomFirstRecaller {
     private cfg: GmConfig,
   ) {}
 
-  setEmbedFn(fn: EmbedFn): void {
+  setEmbedFn(fn: EmbedFn | null): void {
     this.embed = fn;
   }
 

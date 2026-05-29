@@ -1,0 +1,51 @@
+{
+  "plugins": {
+    "slots": {
+      "contextEngine": "openclaw-memory-domfirst"
+    },
+    "entries": {
+      "openclaw-memory-domfirst": {
+        "enabled": true,
+        "config": {
+          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
+          "serviceHost": "127.0.0.1",
+          "servicePort": 42690,
+          "teamId": "team-default",
+          "defaultAgentId": "agent-main",
+          "defaultProjectId": "project-main",
+          "knowledgeMarkers": [
+            "knowledge: true",
+            "memory-scope:",
+            "team-memory: true"
+          ],
+          "llm": {
+            "apiKey": "YOUR_API_KEY",
+            "baseURL": "https://api.openai.com/v1",
+            "model": "gpt-4o-mini"
+          },
+          "embedding": {
+            "apiKey": "YOUR_API_KEY",
+            "baseURL": "https://api.openai.com/v1",
+            "model": "text-embedding-3-small",
+            "dimensions": 512
+          },
+          "backend": {
+            "mode": "graphiti-neo4j",
+            "graphiti": {
+              "baseUrl": "https://your-graphiti.example.com",
+              "groupPrefix": "ocm",
+              "timeoutMs": 20000
+            },
+            "neo4j": {
+              "uri": "bolt+s://your-neo4j.example.com:7687",
+              "username": "neo4j",
+              "password": "YOUR_NEO4J_PASSWORD",
+              "database": "neo4j",
+              "workspace": "main"
+            }
+          }
+        }
+      }
+    }
+  }
+}

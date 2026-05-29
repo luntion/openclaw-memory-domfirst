@@ -1,34 +1,41 @@
 # OpenClaw Memory DomFirst
 
-Local-first layered memory for OpenClaw, built on top of `graph-memory`.
+Layered memory for OpenClaw with a local-first plugin layer and an optional `Graphiti + Neo4j` memory core.
 
-This project turns the original graph-memory core into a practical OpenClaw memory system for:
+This repository keeps the OpenClaw-facing behavior you asked for:
 
-- multi-agent collaboration
-- scoped memory isolation
+- multi-agent memory isolation
+- scoped shared memory
 - elastic recall depth
-- controlled promotion from private memory to shared team memory
-- optional local memory service for external integrations
+- controlled promotion into team memory
+- temporal recall for `past / current / evolution`
 
-It is designed to run on Windows and macOS with minimal external dependencies.
+It now supports two backend modes:
+
+- `sqlite`
+  local-only compatibility mode
+- `graphiti-neo4j`
+  Graphiti service for temporal fact retrieval plus Neo4j for DomFirst governance, lineage, review, and audit
 
 Quick links:
 
 - [Installation Guide](./docs/INSTALL.md)
-- [OpenClaw Config Example](./docs/openclaw.config.example.json)
+- [Chinese Guide](./docs/INSTALL_CN.md)
+- [Default Config Example](./docs/openclaw.config.example.json)
+- [Local Graphiti Config Example](./docs/openclaw.config.graphiti-local.json)
+- [Remote Graphiti Config Example](./docs/openclaw.config.graphiti-remote.json)
 - [Product Overview](./docs/PRODUCT.md)
 - [Release Guide](./docs/RELEASE.md)
 - [Changelog](./CHANGELOG.md)
-- [Chinese Guide](./README_CN.md)
 
-## What It Does
+## What It Ships
 
-`openclaw-memory-domfirst` ships as two parts:
+`openclaw-memory-domfirst` has two runtime components:
 
 - `OpenClaw context-engine plugin`
 - `ocm-memoryd local memory service`
 
-The plugin handles OpenClaw lifecycle integration:
+The plugin owns:
 
 - `ingest()`
 - `afterTurn()`
@@ -36,91 +43,81 @@ The plugin handles OpenClaw lifecycle integration:
 - `prepareSubagentSpawn()`
 - `onSubagentEnded()`
 
-The local service exposes simple HTTP endpoints for search, recall planning, promotion, stats, ingestion, and reindexing.
+The local service exposes:
+
+- `GET /health`
+- `GET /stats`
+- `POST /ingest`
+- `POST /search`
+- `POST /recall-plan`
+- `POST /inspect`
+- `POST /promote`
+- `POST /lineage`
+- `POST /candidates`
+- `POST /candidates/review`
+- `POST /audit`
+- `POST /reindex`
+- `POST /maintenance/run`
 
 ## Core Capabilities
 
-### 1. Layered memory scopes
+### 1. Layered scopes
 
-Each memory item is stored in one of four scopes:
+Each memory item belongs to one of:
 
 - `session`
 - `agent`
 - `project`
 - `team`
 
-Default behavior:
+Default recall order stays local-first:
 
-- new memory stays in `session` or `agent`
-- project-specific knowledge can be shared in `project`
-- `team` is reserved for verified shared knowledge
-
-This prevents cross-agent contamination while still allowing controlled reuse.
+- `session -> agent -> project -> team`
 
 ### 2. Elastic recall depth
 
-Recall is not always full-depth. The planner classifies the query and chooses one of four levels:
+The planner still chooses:
 
-- `L0`: no recall
-- `L1`: confirmation/summary only
-- `L2`: event-level recall
-- `L3`: deep recall with richer detail
+- `L0`
+- `L1`
+- `L2`
+- `L3`
 
 Examples:
 
-- `昨天那个 skill 我们遇到过故障对吧` -> typically `L1`
-- `昨天我们开发那个 skill 遇到的故障是什么来着` -> typically `L2` or `L3`
+- `"Did we hit that failure yesterday?"` -> usually `L1`
+- `"What exactly was the failure yesterday, and how did we fix it?"` -> usually `L2` or `L3`
 
-### 3. Local-first recall order
+### 3. Shared memory promotion
 
-Recall is scoped and local-first:
+Team memory is still controlled by mixed promotion plus double verification:
 
-- `session`
-- `agent`
-- `project`
-- `team`
+- repeated confirmation in later sessions
+- validation by another agent
+- explicit user or admin approval
 
-The team layer is not searched by default unless the query or plan requires it.
+### 4. Temporal memory
 
-### 4. Shared memory promotion
+The system supports:
 
-Shared memory uses mixed promotion plus double verification:
+- `current`
+- `past`
+- `evolution`
 
-- a memory starts as private or project-level
-- it can be marked as a promotion candidate
-- it reaches `team` only after validation
+This now maps to:
 
-Promotion can happen when:
+- Graphiti fact retrieval
+- Neo4j lineage and version graph
+- plugin-side depth control and context assembly
 
-- the same conclusion is confirmed again in another session
-- another agent reuses and validates it
-- the user explicitly promotes it
+### 5. Governance and inspection
 
-### 5. Knowledge-file bridge
+The new backend mode adds:
 
-The indexer intentionally avoids whole-workspace ingestion.
-
-It only auto-indexes:
-
-- files under `memory/`
-- files explicitly marked with configured knowledge markers
-
-This keeps the graph low-noise and token-efficient.
-
-### 6. Lightweight temporal compatibility
-
-The current build already includes lightweight temporal support:
-
-- `eventTime`
-- `resolvedAt`
-- `supersededBy`
-- node version snapshots
-- `past / current / evolution` recall modes
-
-This is enough to support questions like:
-
-- `之前那个 skill-history 是怎么做的`
-- `后来那个流程怎么改的`
+- lineage lookup
+- candidate review
+- audit findings
+- stale / superseded / disputed state awareness
 
 ## Architecture
 
@@ -128,19 +125,17 @@ This is enough to support questions like:
 OpenClaw
   -> openclaw-memory-domfirst plugin
       -> DomFirstMemoryEngine
-          -> scoped store
           -> recall planner
-          -> hybrid recaller
-          -> promotion layer
-          -> file indexer
+          -> scope policy
+          -> promotion policy
+          -> context assembly
+          -> backend runtime
+              -> sqlite runtime
+              -> graphiti + neo4j runtime
   -> optional ocm-memoryd service
-      -> /search
-      -> /recall-plan
-      -> /promote
-      -> /stats
-      -> /ingest
-      -> /maintenance/run
-      -> /reindex
+      -> health / search / inspect / promote
+      -> lineage / candidates / review / audit
+      -> reindex / maintenance
 ```
 
 ## Repository Layout
@@ -151,34 +146,16 @@ service.ts                   Local HTTP memory service
 openclaw.plugin.json         Plugin manifest
 src/domfirst/engine.ts       Main orchestration layer
 src/domfirst/recall-plan.ts  Elastic recall planner
-src/domfirst/recaller.ts     Scoped recall execution
-src/domfirst/promotion.ts    Candidate promotion and team sharing
-src/domfirst/files.ts        Knowledge-file discovery and indexing
+src/domfirst/recaller.ts     SQLite fallback recaller
+src/backend/                 Backend runtime adapters
 src/store/db.ts              SQLite schema and migrations
-src/store/store.ts           Core graph-memory store logic
+src/store/store.ts           SQLite compatibility store
 test/domfirst.test.ts        Layered memory behavior tests
-```
-
-## Install
-
-### Requirements
-
-- Node.js 22+
-- OpenClaw with plugin support
-
-### Local development install
-
-```bash
-git clone <your-repo-or-local-copy>
-cd openclaw-memory-domfirst
-npm install
-npm test
-npm run build
 ```
 
 ## OpenClaw Setup
 
-Register the plugin as a context engine in your OpenClaw config.
+Register the plugin as the `contextEngine`.
 
 Example:
 
@@ -235,101 +212,33 @@ Notes:
 
 - `llm` is recommended for extraction quality
 - `embedding` is optional
-- if embedding is missing, the system degrades to FTS-based recall
-- `backend.mode = "graphiti-neo4j"` enables the Neo4j + Graphiti memory core
+- `backend.mode = "sqlite"` keeps local compatibility mode
+- `backend.mode = "graphiti-neo4j"` enables the Neo4j + Graphiti core
 - `backend.neo4j.uri` may point to local Neo4j Desktop or an external Neo4j instance
 - `backend.graphiti.baseUrl` may point to a local or external Graphiti service
 
-## Run The Local Service
+## Service Startup
 
 ```bash
 npm run service
 ```
 
-Environment variables:
+Convenience wrappers:
 
-- `OCM_HOST`
-- `OCM_PORT`
-- `OCM_DB_PATH`
-- `OCM_TEAM_ID`
-- `OCM_AGENT_ID`
-- `OCM_PROJECT_ID`
-- `OCM_MODEL`
+- `npm run service:ps`
+- `npm run service:sh`
+- `npm run backend:check:ps`
+- `npm run backend:check:sh`
 
-Default service endpoint:
+Default endpoint:
 
 ```text
 http://127.0.0.1:42690
 ```
 
-## Service API
-
-### `GET /health`
-
-Health check.
-
-### `GET /stats`
-
-Returns scoped graph stats.
-
-Query params:
-
-- `sessionId`
-- `agentId`
-- `projectId`
-- `teamId`
-
-### `POST /recall-plan`
-
-Request body:
-
-```json
-{
-  "query": "昨天那个 skill 我们遇到过故障对吧",
-  "ctx": {
-    "sessionId": "sess-1",
-    "agentId": "agent-a",
-    "projectId": "proj-1",
-    "teamId": "team-1"
-  }
-}
-```
-
-### `POST /search`
-
-Request body:
-
-```json
-{
-  "query": "skill-history",
-  "ctx": {
-    "sessionId": "sess-1",
-    "agentId": "agent-a",
-    "projectId": "proj-1",
-    "teamId": "team-1"
-  }
-}
-```
-
-### `POST /ingest`
-
-Push a message into memory processing.
-
-### `POST /promote`
-
-Explicitly promote a memory candidate.
-
-### `POST /maintenance/run`
-
-Run maintenance tasks manually.
-
-### `POST /reindex`
-
-Reindex `memory/` and explicitly marked knowledge files.
-
 ## OpenClaw Tools
 
-The plugin registers these tools:
+The plugin registers:
 
 - `ocm_search`
 - `ocm_remember`
@@ -338,39 +247,27 @@ The plugin registers these tools:
 - `ocm_reindex`
 - `ocm_inspect`
 - `ocm_candidates`
+- `ocm_lineage`
+- `ocm_review_candidate`
+- `ocm_audit`
 
-## Current Status
+## Verification Status
 
-This repository currently provides a working v1:
+Current local verification:
 
-- plugin builds
-- service runs
-- layered recall works
-- temporal version recall works
-- tests pass
-
-Verified locally:
-
-- `npm test` -> 93 passing tests
+- `npm test` -> 97 passing tests
 - `npm run build` -> passes
+- `npm run package:ps` -> passes
 
-## Limitations
+Latest packaged artifact:
 
-Current v1 intentionally does not try to be a full memory platform.
+- `release/openclaw-memory-domfirst-0.3.0.zip`
 
-Known boundaries:
+## Current Boundaries
 
-- no full workspace indexing by default
-- team memory is quality-first, not speed-first
-- temporal modeling is lightweight, not yet a full event timeline engine
-- packaging and OS-specific installers are not included yet
-
-## Next Recommended Work
-
-- add Windows/macOS startup scripts
-- add packaged OpenClaw install instructions for real deployment
-- expand temporal graph support into a richer `v1.5`
-- add admin/debug APIs for promotion review and scope inspection
+- Graphiti and Neo4j live integration still depends on a running service and database
+- SQLite remains the message buffer and compatibility fallback
+- full temporal event modeling is still lighter than a dedicated v1.5 timeline engine
 
 ## License
 

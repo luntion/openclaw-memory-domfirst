@@ -1,385 +1,240 @@
 # OpenClaw Memory DomFirst
 
-这是一个基于 `graph-memory` 主干改造出来的 OpenClaw 分层弹性记忆系统。
+这是一个面向 OpenClaw 的分层记忆系统，插件层保持本地优先，记忆主核可切换到 `Graphiti + Neo4j`。
 
-它不是单纯把图做大，而是把记忆系统做成更适合 OpenClaw 实际协作场景的形态：
+它保留了你最初要求的几类能力：
 
-- 多 agent 可隔离
-- 共享记忆可控
-- 召回深度可弹性调节
-- 本地优先、低依赖、低噪音
-- 可作为 OpenClaw 插件，也可作为外部本地扩展服务
+- 多 agent 记忆隔离
+- `session / agent / project / team` 四层共享控制
+- 按问题深度弹性召回
+- 团队记忆晋升与防污染
+- `past / current / evolution` 时序视角查询
 
-目标平台：
+当前支持两种后端模式：
 
-- Windows
-- macOS
+- `sqlite`
+  本地兼容模式，适合最小依赖运行
+- `graphiti-neo4j`
+  以 Graphiti 负责事实/时序检索，以 Neo4j 负责分层治理、来源链、候选审查和审计
 
 快速入口：
 
-- [安装部署说明](./docs/INSTALL_CN.md)
-- [OpenClaw 配置示例](./docs/openclaw.config.example.json)
+- [安装说明](./docs/INSTALL_CN.md)
+- [英文说明](./README.md)
+- [默认配置示例](./docs/openclaw.config.example.json)
+- [本机 Graphiti 示例](./docs/openclaw.config.graphiti-local.json)
+- [远程 Graphiti 示例](./docs/openclaw.config.graphiti-remote.json)
 - [产品说明](./docs/PRODUCT_CN.md)
-- [发布说明](./docs/RELEASE.md)
 - [更新记录](./CHANGELOG.md)
-- [English README](./README.md)
 
-## 这个成品现在能做什么
+## 成品现在能做什么
 
-当前实现已经具备可运行的 v1 能力。
-
-它由两个组件组成：
+`openclaw-memory-domfirst` 由两个运行组件组成：
 
 - `openclaw-memory-domfirst`
   OpenClaw `context-engine` 插件
 - `ocm-memoryd`
-  本地常驻 memory service
+  本地 `memory service`
 
 插件负责接入 OpenClaw 生命周期：
 
 - `ingest()`
 - `afterTurn()`
 - `assemble()`
+- `compact()`
 - `prepareSubagentSpawn()`
 - `onSubagentEnded()`
 
-本地服务负责对外提供：
+本地服务负责对外暴露记忆能力：
 
-- 检索
-- 召回计划
-- 显式写入
-- 共享晋升
-- 文件重建索引
-- 统计与维护
+- `GET /health`
+- `GET /stats`
+- `POST /ingest`
+- `POST /search`
+- `POST /recall-plan`
+- `POST /inspect`
+- `POST /promote`
+- `POST /lineage`
+- `POST /candidates`
+- `POST /candidates/review`
+- `POST /audit`
+- `POST /reindex`
+- `POST /maintenance/run`
 
 ## 核心能力
 
-### 1. 四层记忆分级
+### 1. 四层分级记忆
 
-每条记忆都带作用域，首版支持四层：
+每条记忆都落在以下作用域之一：
 
 - `session`
 - `agent`
 - `project`
 - `team`
 
-默认规则：
+默认召回顺序保持局部优先：
 
-- 新记忆先进入 `session` 或 `agent`
-- 项目共享知识进入 `project`
-- 团队层 `team` 只接收经过验证的稳定记忆
+- `session -> agent -> project -> team`
 
-这能避免多 agent 之间互相污染。
+这保证了：
+
+- agent 私有经验默认隔离
+- 同项目多 agent 可以复用 `project` 层
+- `team` 层只承接经过验证的共享知识
 
 ### 2. 弹性记忆召回
 
-系统不会每次都全量深召回，而是先判断你对记忆细节的需求等级。
+系统不会每次都全量深召回，而是按问题深度做四档规划：
 
-当前支持四档：
+- `L0`
+- `L1`
+- `L2`
+- `L3`
 
-- `L0` 不召回
-- `L1` 只给结论或确认
-- `L2` 返回事件级细节
-- `L3` 返回更深的过程、原因、修复路径
+典型例子：
 
-例子：
+- `昨天那个任务我们遇到过故障对吧` 通常走 `L1`
+- `昨天那个任务遇到的故障是什么，后来怎么修的` 通常走 `L2` 或 `L3`
 
-- `昨天那个 skill 我们遇到过故障对吧`
-  一般走 `L1`
-- `昨天我们开发那个 skill 遇到的故障是什么来着`
-  一般走 `L2` 或 `L3`
+这样可以减少无效召回，降低 token 消耗，并保持响应速度。
 
-这样可以减少无意义的大规模召回，降低 token 消耗。
+### 3. 团队共享晋升
 
-### 3. 局部优先召回
+团队层不是默认自动写入，而是走“混合晋升 + 双重验证”：
 
-默认召回顺序不是全图扫，而是：
+- 后续会话再次确认同一经验
+- 另一个 agent 复用并验证同一经验
+- 用户或管理 agent 明确批准共享
 
-- `session`
-- `agent`
-- `project`
-- `team`
+这样做的目的，是防止单次低质量经验污染团队记忆。
 
-只有局部不足、或者问题明显指向共享经验时，才会拉高到团队层。
+### 4. 时序记忆
 
-### 4. 共享晋升机制
+当前已经支持三种时间视角：
 
-团队共享采用“混合晋升 + 双重验证”。
+- `current`
+- `past`
+- `evolution`
 
-流程是：
+在 `graphiti-neo4j` 模式下：
 
-- 私有或项目层先沉淀
-- 系统可标记为 `candidate`
-- 满足验证条件后再进入 `team`
+- Graphiti 负责事实检索与时间相关结果
+- Neo4j 负责版本链、来源链、共享状态与治理关系
+- 插件层继续控制 `L0-L3` 召回深度和上下文注入
 
-验证来源包括：
+### 5. 治理与审查
 
-- 第二次独立命中同一经验
-- 第二个 agent 复用并验证
-- 用户显式确认要晋升
+当前版本已经补上这些管理能力：
 
-这能保证团队层不被单次低质量记忆污染。
-
-### 5. 文件记忆桥接
-
-当前不会默认扫描整个工作区。
-
-只索引两类文件：
-
-- `memory/` 目录下的文件
-- 带显式知识标记的文档
-
-这样做的目的很明确：
-
-- 避免噪音灌入图谱
-- 避免召回质量下降
-- 避免 token 被无关内容拖高
-
-### 6. 轻量时序能力
-
-虽然完整时序图谱还没扩展到完整版 `v1.5`，但当前实现已经有轻量时序兼容：
-
-- `eventTime`
-- `resolvedAt`
-- `supersededBy`
-- 历史版本快照
-- `current / past / evolution` 三种时间模式召回
-
-所以它已经能处理这类问题：
-
-- `之前那个 skill-history 是怎么做的`
-- `后来那个流程怎么改的`
+- 来源链追踪
+- 候选共享审查
+- 审计视图
+- 对 `stale / superseded / disputed` 状态的识别与降权
 
 ## 架构形态
 
 ```text
 OpenClaw
-  -> openclaw-memory-domfirst 插件
+  -> openclaw-memory-domfirst plugin
       -> DomFirstMemoryEngine
-          -> 分层存储
-          -> 召回评级器
-          -> 分层召回器
-          -> 晋升层
-          -> 文件索引器
-  -> ocm-memoryd 本地服务
-      -> /search
-      -> /recall-plan
-      -> /promote
-      -> /stats
-      -> /ingest
-      -> /maintenance/run
-      -> /reindex
+          -> recall planner
+          -> scope policy
+          -> promotion policy
+          -> context assembly
+          -> backend runtime
+              -> sqlite runtime
+              -> graphiti + neo4j runtime
+  -> optional ocm-memoryd service
+      -> health / search / inspect / promote
+      -> lineage / candidates / review / audit
+      -> reindex / maintenance
 ```
 
-## 目录说明
+## 目录概览
 
 ```text
 index.ts                     OpenClaw 插件入口
 service.ts                   本地 memory service
 openclaw.plugin.json         插件清单
-src/domfirst/engine.ts       核心编排层
+src/domfirst/engine.ts       主编排层
 src/domfirst/recall-plan.ts  弹性召回评级
-src/domfirst/recaller.ts     分层召回执行
-src/domfirst/promotion.ts    晋升逻辑
-src/domfirst/files.ts        文件记忆索引
-src/store/db.ts              SQLite 表结构与迁移
-src/store/store.ts           graph-memory 主干存储逻辑
-test/domfirst.test.ts        分层记忆测试
+src/backend/                 后端运行时适配层
+src/store/db.ts              SQLite 缓冲数据库与迁移
+src/store/store.ts           SQLite 兼容存储层
+test/domfirst.test.ts        分层记忆与召回测试
 ```
 
-## 安装与本地运行
+## OpenClaw 接入
 
-### 前置要求
+在 OpenClaw 配置中把它注册为 `contextEngine`。
 
-- Node.js 22+
-- 支持插件的 OpenClaw
+示例见：
 
-### 本地开发安装
+- [默认配置](./docs/openclaw.config.example.json)
+- [本机 Graphiti 配置](./docs/openclaw.config.graphiti-local.json)
+- [远程 Graphiti 配置](./docs/openclaw.config.graphiti-remote.json)
 
-```bash
-git clone <your-repo-or-local-copy>
-cd openclaw-memory-domfirst
-npm install
-npm test
-npm run build
-```
+关键说明：
 
-## OpenClaw 接入方式
+- `llm` 建议配置，否则抽取质量会明显下降
+- `embedding` 可选，不配置时会退化到全文检索
+- `backend.mode = "sqlite"` 使用本地兼容模式
+- `backend.mode = "graphiti-neo4j"` 使用 Neo4j + Graphiti 主核
 
-在 OpenClaw 配置中，把它注册成 `contextEngine`。
-
-示例：
-
-```json
-{
-  "plugins": {
-    "slots": {
-      "contextEngine": "openclaw-memory-domfirst"
-    },
-    "entries": {
-      "openclaw-memory-domfirst": {
-        "enabled": true,
-        "config": {
-          "dbPath": "~/.openclaw/openclaw-memory-domfirst.db",
-          "teamId": "team-default",
-          "defaultAgentId": "agent-main",
-          "defaultProjectId": "project-main",
-          "llm": {
-            "apiKey": "YOUR_API_KEY",
-            "baseURL": "https://api.openai.com/v1",
-            "model": "gpt-4o-mini"
-          },
-          "embedding": {
-            "apiKey": "YOUR_API_KEY",
-            "baseURL": "https://api.openai.com/v1",
-            "model": "text-embedding-3-small",
-            "dimensions": 512
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-说明：
-
-- `llm` 建议配置，用于抽取质量
-- `embedding` 可选
-- 没有 embedding 时会自动降级到全文检索，不会阻断使用
-
-## 启动本地服务
+## 本地服务启动
 
 ```bash
 npm run service
 ```
 
-可用环境变量：
+也可以直接使用平台脚本：
 
-- `OCM_HOST`
-- `OCM_PORT`
-- `OCM_DB_PATH`
-- `OCM_TEAM_ID`
-- `OCM_AGENT_ID`
-- `OCM_PROJECT_ID`
-- `OCM_MODEL`
+- Windows: `npm run service:ps`
+- macOS / Linux: `npm run service:sh`
 
-默认地址：
+后端健康检查脚本：
+
+- Windows: `npm run backend:check:ps`
+- macOS / Linux: `npm run backend:check:sh`
+
+默认服务地址：
 
 ```text
 http://127.0.0.1:42690
 ```
 
-## 服务接口
-
-### `GET /health`
-
-健康检查。
-
-### `GET /stats`
-
-返回当前作用域统计。
-
-可带查询参数：
-
-- `sessionId`
-- `agentId`
-- `projectId`
-- `teamId`
-
-### `POST /recall-plan`
-
-请求体示例：
-
-```json
-{
-  "query": "昨天那个 skill 我们遇到过故障对吧",
-  "ctx": {
-    "sessionId": "sess-1",
-    "agentId": "agent-a",
-    "projectId": "proj-1",
-    "teamId": "team-1"
-  }
-}
-```
-
-### `POST /search`
-
-请求体示例：
-
-```json
-{
-  "query": "skill-history",
-  "ctx": {
-    "sessionId": "sess-1",
-    "agentId": "agent-a",
-    "projectId": "proj-1",
-    "teamId": "team-1"
-  }
-}
-```
-
-### `POST /ingest`
-
-写入一条待处理消息。
-
-### `POST /promote`
-
-显式执行共享晋升。
-
-### `POST /maintenance/run`
-
-手动执行维护。
-
-### `POST /reindex`
-
-重建 `memory/` 和显式知识文件索引。
-
 ## OpenClaw 工具
 
-插件已注册这些工具：
+插件当前注册这些工具：
 
 - `ocm_search`
 - `ocm_remember`
 - `ocm_stats`
 - `ocm_promote`
 - `ocm_reindex`
+- `ocm_inspect`
+- `ocm_candidates`
+- `ocm_lineage`
+- `ocm_review_candidate`
+- `ocm_audit`
 
-## 当前实现状态
+## 当前验证状态
 
-这套仓库现在已经是可运行的 v1：
+本地已验证：
 
-- 插件可构建
-- service 可启动
-- 分层记忆生效
-- 弹性召回生效
-- 历史版本召回生效
-- 测试通过
+- `npm run build` 通过
+- `npm test` 通过，`97` 个测试全部通过
+- `npm run package:ps` 通过
 
-当前本地验证结果：
+当前打包产物：
 
-- `npm test` -> `93 passed`
-- `npm run build` -> 通过
+- `release/openclaw-memory-domfirst-0.3.0.zip`
 
 ## 当前边界
 
-这个 v1 有意保持克制，不做过重的平台化。
-
-目前边界：
-
-- 不默认索引整个工作区
-- 团队共享优先质量，不优先速度
-- 时序层是轻量兼容，不是完整事件时间线引擎
-- 还没有做 Windows/macOS 打包安装器
-
-## 下一步建议
-
-建议按这个顺序继续：
-
-- 补 Windows/macOS 启动脚本
-- 补真实部署用的 OpenClaw 安装文档
-- 扩展到更完整的 `v1.5` 时序图谱
-- 增加管理员审查和调试接口
+- Graphiti 与 Neo4j 的真实联调仍依赖可用的服务和数据库实例
+- SQLite 现在是消息缓冲与兼容回退层，不再是主记忆真源
+- 时序能力已可用，但还没有扩展成完整的高阶时间线引擎
 
 ## 许可证
 

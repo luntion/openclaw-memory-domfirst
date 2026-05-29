@@ -1,0 +1,78 @@
+{
+  "kind": "context-engine",
+  "id": "openclaw-memory-hybrid",
+  "name": "OpenClaw Memory Hybrid",
+  "version": "0.2.0",
+  "description": "Scoped elastic memory engine with layered recall and local service",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "default": "~/.openclaw/openclaw-memory-hybrid.db",
+        "description": "SQLite database path"
+      },
+      "serviceHost": {
+        "type": "string",
+        "default": "127.0.0.1",
+        "description": "Local memory service host"
+      },
+      "servicePort": {
+        "type": "integer",
+        "default": 42690,
+        "description": "Local memory service port"
+      },
+      "teamId": {
+        "type": "string",
+        "default": "team-default",
+        "description": "Default team scope identifier"
+      },
+      "defaultAgentId": {
+        "type": "string",
+        "default": "agent-main",
+        "description": "Fallback agent scope identifier"
+      },
+      "defaultProjectId": {
+        "type": "string",
+        "description": "Fallback project scope identifier"
+      },
+      "knowledgeMarkers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Text markers used to include explicit knowledge files"
+      },
+      "compactTurnCount": {
+        "type": "integer",
+        "default": 6,
+        "description": "Maintenance interval in turns"
+      },
+      "recallMaxNodes": {
+        "type": "integer",
+        "default": 6,
+        "description": "Default max recall nodes"
+      },
+      "recallMaxDepth": {
+        "type": "integer",
+        "default": 2,
+        "description": "Default graph walk depth"
+      },
+      "embedding": {
+        "type": "object",
+        "properties": {
+          "apiKey": { "type": "string" },
+          "baseURL": { "type": "string" },
+          "model": { "type": "string" },
+          "dimensions": { "type": "integer" }
+        }
+      },
+      "llm": {
+        "type": "object",
+        "properties": {
+          "apiKey": { "type": "string" },
+          "baseURL": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      }
+    }
+  }
+}

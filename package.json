@@ -1,0 +1,49 @@
+{
+  "name": "openclaw-memory-hybrid",
+  "version": "0.2.0",
+  "description": "Layered temporal memory engine for OpenClaw",
+  "main": "index.ts",
+  "type": "module",
+  "files": [
+    "index.ts",
+    "service.ts",
+    "openclaw.plugin.json",
+    "README.md",
+    "README_CN.md",
+    "LICENSE",
+    "src",
+    "docs",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "service": "tsx service.ts",
+    "service:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/start-memoryd.ps1",
+    "service:sh": "bash ./scripts/start-memoryd.sh",
+    "package:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/package-release.ps1",
+    "package:sh": "bash ./scripts/package-release.sh",
+    "verify:release": "npm test && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@photostructure/sqlite": "^1.0.0",
+    "@sinclair/typebox": "^0.34.48",
+    "openai": "^4.47.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "hooks": {}
+  }
+}

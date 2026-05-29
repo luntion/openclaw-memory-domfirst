@@ -100,6 +100,7 @@ export interface BackendRuntime {
   graphStore: MemoryGraphStore;
   messageStore: MessageStore;
   recallBackend: RecallBackend;
+  initialize?(): Promise<void>;
   health(): Promise<Record<string, unknown>>;
   dispose?(): Promise<void>;
 }

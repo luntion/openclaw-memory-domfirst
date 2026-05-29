@@ -239,6 +239,9 @@ export function createSQLiteRuntime(db: DatabaseSyncInstance, cfg: GmConfig): Ba
     graphStore: new SQLiteGraphStore(db),
     messageStore: new SQLiteMessageStore(db),
     recallBackend: new SQLiteRecallBackend(db, cfg),
+    async initialize() {
+      // SQLite compatibility mode is already ready after local DB open/migration.
+    },
     async health() {
       const base = getStats(db);
       return {

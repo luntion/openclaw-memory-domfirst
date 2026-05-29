@@ -170,6 +170,14 @@ const plugin = {
     const llm = createCompleteFn(provider, model, cfg.llm);
     const engine = new DomFirstMemoryEngine(runtime, localDb, cfg, llm, api.logger);
 
+    runtime.initialize?.()
+      .then(() => {
+        api.logger.info(`[openclaw-memory-domfirst] backend ready | mode=${cfg.backend.mode} | workspace=${cfg.backend.neo4j.workspace}`);
+      })
+      .catch((error) => {
+        api.logger.warn(`[openclaw-memory-domfirst] backend init degraded | mode=${cfg.backend.mode} | error=${String(error)}`);
+      });
+
     createEmbedFn(cfg.embedding)
       .then((embed) => {
         engine.setEmbedFn(embed);

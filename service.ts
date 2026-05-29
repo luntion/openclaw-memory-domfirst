@@ -138,6 +138,14 @@ async function main(): Promise<void> {
   const embed = await createEmbedFn(cfg.embedding).catch(() => null);
   engine.setEmbedFn(embed);
 
+  runtime.initialize?.()
+    .then(() => {
+      console.log(`[ocm-memoryd] backend ready | mode=${cfg.backend.mode}`);
+    })
+    .catch((error) => {
+      console.warn(`[ocm-memoryd] backend init degraded | mode=${cfg.backend.mode} | error=${String(error)}`);
+    });
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${cfg.serviceHost}:${cfg.servicePort}`);
     const body = await readBody(req);

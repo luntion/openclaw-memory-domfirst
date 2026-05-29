@@ -180,6 +180,7 @@ test/domfirst.test.ts        分层记忆与召回测试
 - `embedding` 可选，不配置时会退化到全文检索
 - `backend.mode = "sqlite"` 使用本地兼容模式
 - `backend.mode = "graphiti-neo4j"` 使用 Neo4j + Graphiti 主核
+- `graphiti-neo4j` 模式会在首次成功连接时自动准备 Neo4j 约束、索引和全文检索索引
 
 ## 本地服务启动
 
@@ -196,6 +197,8 @@ npm run service
 
 - Windows: `npm run backend:check:ps`
 - macOS / Linux: `npm run backend:check:sh`
+
+服务或插件启动时会做一次非阻塞后端预热，并在日志里说明 Neo4j schema 是否初始化成功，或者当前处于降级状态。
 
 默认服务地址：
 

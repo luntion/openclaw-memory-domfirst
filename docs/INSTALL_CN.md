@@ -96,6 +96,7 @@ npm run build
 - `llm` 建议配置，否则抽取质量会明显下降
 - `embedding` 可选，不配置时会退化到全文检索
 - `backend.mode = "graphiti-neo4j"` 表示启用 Neo4j + Graphiti 主核
+- `graphiti-neo4j` 模式首次成功连接后，会自动创建所需的 Neo4j 约束和索引
 
 ## 4. Neo4j 与 Graphiti 两种接入方式
 
@@ -206,6 +207,8 @@ npm run backend:check:sh
 - Graphiti `/healthcheck`
 - `ocm-memoryd` `/health`
 - Neo4j Bolt 端口连通性
+
+在 `graphiti-neo4j` 模式下，`/health` 返回里还会包含 `schemaReady`、`neo4j`、`graphiti` 等后端状态字段。
 
 ## 8. 验证插件是否生效
 

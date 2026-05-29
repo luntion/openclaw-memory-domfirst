@@ -41,6 +41,8 @@ type GraphitiFact = {
   expired_at?: string | null;
 };
 
+const MEMORY_TEXT_INDEX = "domfirst_memory_text";
+
 class SQLiteMessageStore implements MessageStore {
   constructor(private db: DatabaseSyncInstance) {}
 
@@ -165,7 +167,7 @@ function parseGroupId(raw: string | undefined, cfg: GmConfig): { scopeType: Scop
   return { scopeType: "team", scopeId: raw };
 }
 
-function buildScopeClauses(filters?: ScopeFilter[]): { where: string; params: Record<string, unknown> } {
+function buildScopeClauses(filters?: ScopeFilter[], variableName = "m"): { where: string; params: Record<string, unknown> } {
   if (!filters?.length) return { where: "", params: {} };
   const clauses: string[] = [];
   const params: Record<string, unknown> = {};
@@ -175,9 +177,9 @@ function buildScopeClauses(filters?: ScopeFilter[]): { where: string; params: Re
     if (filter.scopeIds?.length) {
       const idsKey = `scopeIds${index}`;
       params[idsKey] = filter.scopeIds;
-      clauses.push(`(m.scopeType = $${typeKey} AND m.scopeId IN $${idsKey})`);
+      clauses.push(`(${variableName}.scopeType = $${typeKey} AND ${variableName}.scopeId IN $${idsKey})`);
     } else {
-      clauses.push(`(m.scopeType = $${typeKey})`);
+      clauses.push(`(${variableName}.scopeType = $${typeKey})`);
     }
   });
   return { where: `WHERE ${clauses.join(" OR ")}`, params };
@@ -276,6 +278,7 @@ class GraphitiNeo4jRecallBackend implements RecallBackend {
     private driver: Driver,
     private graphiti: GraphitiClient,
     private cfg: GmConfig,
+    private ensureReady: () => Promise<void>,
   ) {}
 
   setEmbedFn(fn: EmbedFn | null): void {
@@ -283,6 +286,7 @@ class GraphitiNeo4jRecallBackend implements RecallBackend {
   }
 
   async recall(query: string, plan: RecallPlan): Promise<RecallResult> {
+    await this.ensureReady();
     if (plan.depth === "L0") {
       return { nodes: [], edges: [], tokenEstimate: 0, timeline: [], timelineSummary: "" };
     }
@@ -367,28 +371,60 @@ class GraphitiNeo4jRecallBackend implements RecallBackend {
   }
 
   private async searchNeo4jMemories(session: Session, query: string, plan: RecallPlan): Promise<GmNode[]> {
-    const { where, params } = buildScopeClauses(plan.scopeFilters);
-    const result = await session.run(
-      `
-      MATCH (m:DomFirstMemory {workspace: $workspace})
-      ${where}
-        AND (
-          toLower(m.name) CONTAINS $q OR
-          toLower(m.description) CONTAINS $q OR
-          toLower(m.content) CONTAINS $q
-        )
-      RETURN m
-      ORDER BY m.verificationCount DESC, m.confidence DESC, m.updatedAt DESC
-      LIMIT $limit
-      `,
-      {
-        workspace: this.cfg.backend.neo4j.workspace,
-        q: query.trim().toLowerCase(),
-        limit: neo4j.int(Math.max(plan.maxNodes * 2, 6)),
-        ...params,
-      },
-    );
-    return result.records.map((record) => mapNode(record)).filter((node) => matchesTime(node.eventTime ?? node.updatedAt, plan));
+    const workspace = this.cfg.backend.neo4j.workspace;
+    const limit = neo4j.int(Math.max(plan.maxNodes * 2, 6));
+    const q = query.trim();
+
+    try {
+      const { where, params } = buildScopeClauses(plan.scopeFilters, "node");
+      const scopedWhere = where
+        ? `${where} AND node.workspace = $workspace`
+        : "WHERE node.workspace = $workspace";
+      const result = await session.run(
+        `
+        CALL db.index.fulltext.queryNodes($indexName, $ftsQuery) YIELD node, score
+        ${scopedWhere}
+        RETURN node as m, score
+        ORDER BY score DESC, m.verificationCount DESC, m.confidence DESC, m.updatedAt DESC
+        LIMIT $limit
+        `,
+        {
+          indexName: MEMORY_TEXT_INDEX,
+          ftsQuery: buildFullTextQuery(q),
+          workspace,
+          limit,
+          ...params,
+        },
+      );
+      return result.records
+        .map((record) => mapNode(record))
+        .filter((node) => matchesTime(node.eventTime ?? node.updatedAt, plan));
+    } catch {
+      const { where, params } = buildScopeClauses(plan.scopeFilters);
+      const result = await session.run(
+        `
+        MATCH (m:DomFirstMemory {workspace: $workspace})
+        ${where}
+          AND (
+            toLower(m.name) CONTAINS $q OR
+            toLower(m.description) CONTAINS $q OR
+            toLower(m.content) CONTAINS $q
+          )
+        RETURN m
+        ORDER BY m.verificationCount DESC, m.confidence DESC, m.updatedAt DESC
+        LIMIT $limit
+        `,
+        {
+          workspace,
+          q: q.toLowerCase(),
+          limit,
+          ...params,
+        },
+      );
+      return result.records
+        .map((record) => mapNode(record))
+        .filter((node) => matchesTime(node.eventTime ?? node.updatedAt, plan));
+    }
   }
 
   private async loadEdges(session: Session, nodeIds: string[], plan: RecallPlan): Promise<GmEdge[]> {
@@ -470,6 +506,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
     private driver: Driver,
     private graphiti: GraphitiClient,
     private cfg: GmConfig,
+    private ensureReady: () => Promise<void>,
   ) {}
 
   async upsertNode(
@@ -477,6 +514,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
     ctx: ScopeContext,
     meta?: Partial<MemoryMetadata>,
   ) {
+    await this.ensureReady();
     const resolved = { ...defaultMetadata(ctx, meta?.scopeType ?? "agent"), ...meta };
     const scopeType = resolved.scopeType;
     const scopeId = resolved.scopeId ?? scopeIdFor(ctx, scopeType, this.cfg.teamId);
@@ -645,6 +683,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
     ctx: ScopeContext,
     meta?: Partial<MemoryMetadata>,
   ): Promise<void> {
+    await this.ensureReady();
     const resolved = { ...defaultMetadata(ctx, meta?.scopeType ?? "agent"), ...meta };
     const scopeType = resolved.scopeType;
     const scopeId = resolved.scopeId ?? scopeIdFor(ctx, scopeType, this.cfg.teamId);
@@ -688,6 +727,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async getSessionNodes(sessionId: string, filters?: ScopeFilter[]) {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       const { where, params } = buildScopeClauses(filters);
@@ -711,6 +751,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async getEdgesForNode(nodeId: string) {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       const result = await session.run(
@@ -728,6 +769,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async stats(filters?: ScopeFilter[]): Promise<ScopedStats> {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       const { where, params } = buildScopeClauses(filters);
@@ -757,11 +799,13 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async findNodeByName(name: string, filters?: ScopeFilter[]) {
+    await this.ensureReady();
     const result = await this.inspect(name, filters);
     return result.nodes[0] ?? null;
   }
 
   async inspect(name: string, filters?: ScopeFilter[]) {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     const nameKey = normalizeName(name);
     try {
@@ -802,6 +846,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async listCandidates(filters?: ScopeFilter[], limit = 20) {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       const { where, params } = buildScopeClauses(filters);
@@ -826,6 +871,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async markCandidate(nodeId: string): Promise<void> {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       await session.run(
@@ -838,6 +884,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async promote(name: string, ctx: ScopeContext, explicit = false) {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     const nameKey = normalizeName(name);
     const teamId = ctx.teamId ?? this.cfg.teamId;
@@ -922,6 +969,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async lineage(name: string, filters?: ScopeFilter[]) {
+    await this.ensureReady();
     const inspect = await this.inspect(name, filters);
     return {
       name,
@@ -942,6 +990,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async reviewCandidate(name: string, ctx: ScopeContext, action: CandidateReviewAction, targetName?: string) {
+    await this.ensureReady();
     if (action === "approve") {
       const result = await this.promote(name, ctx, true);
       return { ok: result.promoted, action, name, reason: result.reason };
@@ -986,6 +1035,7 @@ class GraphitiNeo4jGraphStore implements MemoryGraphStore {
   }
 
   async audit(filters?: ScopeFilter[]): Promise<AuditFinding[]> {
+    await this.ensureReady();
     const session = this.driver.session({ database: this.cfg.backend.neo4j.database });
     try {
       const { where, params } = buildScopeClauses(filters);
@@ -1118,6 +1168,18 @@ function compactName(text: string): string {
   return trimmed.slice(0, 64) || "memory-fact";
 }
 
+function buildFullTextQuery(text: string): string {
+  const cleaned = text
+    .split(/\s+/)
+    .map((token) => token.replace(/[+\-!(){}\[\]^"~*?:\\/]/g, "").trim())
+    .filter(Boolean);
+  if (!cleaned.length) {
+    const fallback = text.replace(/[+\-!(){}\[\]^"~*?:\\/]/g, " ").trim();
+    return fallback ? `"${fallback}"` : "\"memory\"";
+  }
+  return cleaned.map((token) => `"${token}"`).join(" OR ");
+}
+
 function parseGraphitiDate(raw?: string | null): number | null {
   if (!raw) return null;
   const ts = Date.parse(raw);
@@ -1166,31 +1228,87 @@ function buildTimelineSummary(timeline?: RecallResult["timeline"]): string {
   }).join("\n");
 }
 
+async function ensureNeo4jSchema(driver: Driver, cfg: GmConfig): Promise<void> {
+  const session = driver.session({ database: cfg.backend.neo4j.database });
+  try {
+    const statements = [
+      "CREATE CONSTRAINT domfirst_memory_id IF NOT EXISTS FOR (m:DomFirstMemory) REQUIRE m.id IS UNIQUE",
+      "CREATE CONSTRAINT domfirst_version_id IF NOT EXISTS FOR (v:DomFirstVersion) REQUIRE v.id IS UNIQUE",
+      "CREATE INDEX domfirst_memory_scope IF NOT EXISTS FOR (m:DomFirstMemory) ON (m.workspace, m.scopeType, m.scopeId)",
+      "CREATE INDEX domfirst_memory_name IF NOT EXISTS FOR (m:DomFirstMemory) ON (m.workspace, m.nameKey)",
+      "CREATE INDEX domfirst_memory_promotion IF NOT EXISTS FOR (m:DomFirstMemory) ON (m.workspace, m.promotionState)",
+      "CREATE INDEX domfirst_version_node IF NOT EXISTS FOR (v:DomFirstVersion) ON (v.nodeId, v.versionNo)",
+      "CREATE INDEX domfirst_session_id IF NOT EXISTS FOR (s:DomFirstSession) ON (s.workspace, s.sessionId)",
+      "CREATE INDEX domfirst_agent_id IF NOT EXISTS FOR (a:DomFirstAgent) ON (a.workspace, a.agentId)",
+      "CREATE INDEX domfirst_project_id IF NOT EXISTS FOR (p:DomFirstProject) ON (p.workspace, p.projectId)",
+      "CREATE INDEX domfirst_team_id IF NOT EXISTS FOR (t:DomFirstTeam) ON (t.workspace, t.teamId)",
+      `CREATE FULLTEXT INDEX ${MEMORY_TEXT_INDEX} IF NOT EXISTS FOR (m:DomFirstMemory) ON EACH [m.name, m.description, m.content]`,
+    ];
+    for (const statement of statements) {
+      await session.run(statement);
+    }
+  } finally {
+    await session.close();
+  }
+}
+
 export function createGraphitiNeo4jRuntime(db: DatabaseSyncInstance, cfg: GmConfig): BackendRuntime {
   const driver = neo4j.driver(
     cfg.backend.neo4j.uri,
     neo4j.auth.basic(cfg.backend.neo4j.username, cfg.backend.neo4j.password),
   );
   const graphiti = new GraphitiClient(cfg.backend.graphiti.baseUrl, cfg.backend.graphiti.timeoutMs);
+  let readyPromise: Promise<void> | null = null;
+
+  const ensureReady = async (): Promise<void> => {
+    if (!readyPromise) {
+      readyPromise = (async () => {
+        await driver.verifyConnectivity();
+        await ensureNeo4jSchema(driver, cfg);
+      })().catch((error) => {
+        readyPromise = null;
+        throw error;
+      });
+    }
+    await readyPromise;
+  };
+
   return {
     config: cfg,
-    graphStore: new GraphitiNeo4jGraphStore(driver, graphiti, cfg),
+    graphStore: new GraphitiNeo4jGraphStore(driver, graphiti, cfg, ensureReady),
     messageStore: new SQLiteMessageStore(db),
-    recallBackend: new GraphitiNeo4jRecallBackend(driver, graphiti, cfg),
+    recallBackend: new GraphitiNeo4jRecallBackend(driver, graphiti, cfg, ensureReady),
+    async initialize() {
+      await ensureReady();
+    },
     async health() {
-      const neo4jSession = driver.session({ database: cfg.backend.neo4j.database });
+      const graphitiHealth = await graphiti.health().catch((error) => ({ status: "error", detail: String(error) }));
       try {
-        const graphitiHealth = await graphiti.health().catch((error) => ({ status: `error:${String(error)}` }));
-        await neo4jSession.run("RETURN 1 as ok");
+        await ensureReady();
         return {
           backend: "graphiti-neo4j",
+          status: graphitiHealth.status === "error" ? "degraded" : "ok",
           neo4j: "ok",
           graphiti: graphitiHealth.status,
+          schemaReady: true,
           workspace: cfg.backend.neo4j.workspace,
           graphitiBaseUrl: cfg.backend.graphiti.baseUrl,
+          neo4jUri: cfg.backend.neo4j.uri,
+          graphitiDetail: "detail" in graphitiHealth ? graphitiHealth.detail : undefined,
         };
-      } finally {
-        await neo4jSession.close();
+      } catch (error) {
+        return {
+          backend: "graphiti-neo4j",
+          status: "error",
+          neo4j: "error",
+          neo4jError: String(error),
+          graphiti: graphitiHealth.status,
+          schemaReady: false,
+          workspace: cfg.backend.neo4j.workspace,
+          graphitiBaseUrl: cfg.backend.graphiti.baseUrl,
+          neo4jUri: cfg.backend.neo4j.uri,
+          graphitiDetail: "detail" in graphitiHealth ? graphitiHealth.detail : undefined,
+        };
       }
     },
     async dispose() {

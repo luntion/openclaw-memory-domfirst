@@ -216,6 +216,7 @@ Notes:
 - `backend.mode = "graphiti-neo4j"` enables the Neo4j + Graphiti core
 - `backend.neo4j.uri` may point to local Neo4j Desktop or an external Neo4j instance
 - `backend.graphiti.baseUrl` may point to a local or external Graphiti service
+- in `graphiti-neo4j` mode, the runtime auto-creates the required Neo4j constraints, lookup indexes, and full-text index on first successful connection
 
 ## Service Startup
 
@@ -229,6 +230,8 @@ Convenience wrappers:
 - `npm run service:sh`
 - `npm run backend:check:ps`
 - `npm run backend:check:sh`
+
+When the service or plugin starts in `graphiti-neo4j` mode, it performs a non-blocking backend warmup and logs whether Neo4j schema bootstrap succeeded or the backend is degraded.
 
 Default endpoint:
 

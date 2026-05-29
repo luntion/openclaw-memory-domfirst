@@ -91,6 +91,7 @@ Important:
 - without `plugins.slots.contextEngine`, OpenClaw will not run the plugin lifecycle hooks
 - `llm` is recommended for extraction quality
 - `embedding` is optional; the system can fall back to FTS-only recall
+- `graphiti-neo4j` mode bootstraps required Neo4j constraints and indexes automatically on first successful connection
 
 ## 4. Local Service Startup
 
@@ -143,6 +144,8 @@ Expected response:
 ```json
 { "status": "ok", "service": "ocm-memoryd" }
 ```
+
+In `graphiti-neo4j` mode, the backend health payload also reports whether Neo4j schema bootstrap succeeded and whether Graphiti is reachable.
 
 ## 7. Verify Plugin Behavior
 

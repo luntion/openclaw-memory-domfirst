@@ -4,7 +4,7 @@ import { getDb } from "./src/store/db.ts";
 import { createBackendRuntime } from "./src/backend/factory.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
-import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
+import { DEFAULT_CONFIG, type GmConfig, type RecallPlan, type TemporalMode } from "./src/types.ts";
 import { DomFirstMemoryEngine } from "./src/domfirst/engine.ts";
 
 function readProviderModel(apiConfig: unknown): { provider: string; model: string } {
@@ -93,6 +93,32 @@ function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["se
   }
 
   return lines.join("\n").trim();
+}
+
+function normalizeTemporalSearchParams(params: {
+  temporalMode?: TemporalMode;
+  includeTeam?: boolean;
+  depth?: RecallPlan["depth"];
+  timeRange?: { start?: number; end?: number; label?: string };
+  preferRecent?: boolean;
+  maxNodes?: number;
+  maxDepth?: number;
+}) {
+  return {
+    temporalMode: params.temporalMode,
+    includeTeam: params.includeTeam,
+    depth: params.depth,
+    timeRange: params.timeRange
+      ? {
+        start: params.timeRange.start,
+        end: params.timeRange.end,
+        label: params.timeRange.label ?? "custom",
+      }
+      : undefined,
+    preferRecent: params.preferRecent,
+    maxNodes: params.maxNodes,
+    maxDepth: params.maxDepth,
+  };
 }
 
 function formatInspectResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["inspect"]>>): string {
@@ -246,6 +272,44 @@ const plugin = {
         },
       }),
       { name: "ocm_search" },
+    );
+
+    api.registerTool(
+      (toolCtx: any) => ({
+        name: "ocm_search_temporal",
+        label: "Search Temporal Memory",
+        description: "Search memory with an explicit temporal mode: current, past, or evolution.",
+        parameters: Type.Object({
+          query: Type.String(),
+          temporalMode: Type.String({ description: "Temporal mode: current | past | evolution" }),
+          includeTeam: Type.Optional(Type.Boolean()),
+          depth: Type.Optional(Type.String({ description: "Optional recall depth override L0-L3" })),
+          preferRecent: Type.Optional(Type.Boolean()),
+          maxNodes: Type.Optional(Type.Number()),
+          maxDepth: Type.Optional(Type.Number()),
+        }),
+        async execute(_toolCallId: string, params: {
+          query: string;
+          temporalMode: TemporalMode;
+          includeTeam?: boolean;
+          depth?: RecallPlan["depth"];
+          preferRecent?: boolean;
+          maxNodes?: number;
+          maxDepth?: number;
+        }) {
+          const ctx = ctxFromHook(toolCtx, cfg);
+          const result = await engine.searchTemporal(
+            params.query,
+            ctx,
+            normalizeTemporalSearchParams(params),
+          );
+          return {
+            content: [{ type: "text", text: formatSearchResult(result) }],
+            details: result,
+          };
+        },
+      }),
+      { name: "ocm_search_temporal" },
     );
 
     api.registerTool(

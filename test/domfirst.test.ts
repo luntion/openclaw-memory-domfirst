@@ -328,4 +328,58 @@ describe("admin/debug memory access", () => {
 
     expect(items.some((item) => item.name === "candidate-skill")).toBe(true);
   });
+
+  it("searchTemporal can explicitly include team scope", async () => {
+    upsertScopedNode(db, {
+      type: "SKILL",
+      name: "team-history-skill",
+      description: "shared team playbook",
+      content: "team-only remediation path",
+    }, ctx, {
+      scopeType: "team",
+      scopeId: "team-1",
+      visibility: "shared",
+      confidence: 0.95,
+      verificationCount: 3,
+      promotionState: "promoted",
+    });
+
+    const engine = new DomFirstMemoryEngine(createSQLiteRuntime(db, DEFAULT_CONFIG), db, DEFAULT_CONFIG, async () => "");
+    const result = await engine.searchTemporal("team-history-skill", ctx, {
+      temporalMode: "current",
+      includeTeam: true,
+      depth: "L2",
+    });
+
+    expect(result.plan.includeTeam).toBe(true);
+    expect(result.plan.scopeFilters.some((item) => item.scopeType === "team")).toBe(true);
+    expect(result.result.nodes.some((node) => node.scopeType === "team" && node.name === "team-history-skill")).toBe(true);
+  });
+
+  it("searchTemporal returns timeline data in evolution mode", async () => {
+    upsertScopedNode(db, {
+      type: "SKILL",
+      name: "explicit-timeline-skill",
+      description: "v1",
+      content: "initial path",
+    }, ctx, { scopeType: "project", scopeId: "proj-1" });
+
+    upsertScopedNode(db, {
+      type: "SKILL",
+      name: "explicit-timeline-skill",
+      description: "v2",
+      content: "revised path",
+    }, ctx, { scopeType: "project", scopeId: "proj-1", supersededBy: "explicit-timeline-skill-v2" });
+
+    const engine = new DomFirstMemoryEngine(createSQLiteRuntime(db, DEFAULT_CONFIG), db, DEFAULT_CONFIG, async () => "");
+    const result = await engine.searchTemporal("explicit-timeline-skill", ctx, {
+      temporalMode: "evolution",
+      includeTeam: false,
+      depth: "L3",
+    });
+
+    expect(result.plan.temporalMode).toBe("evolution");
+    expect(result.result.timeline?.some((item) => item.name === "explicit-timeline-skill")).toBe(true);
+    expect(result.result.timelineSummary).toContain("explicit-timeline-skill:");
+  });
 });

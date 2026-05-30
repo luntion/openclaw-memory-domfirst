@@ -12,6 +12,7 @@ export type PromotionState = "private" | "candidate" | "promoted";
 export type RecallDepth = "L0" | "L1" | "L2" | "L3";
 export type BackendMode = "sqlite" | "graphiti-neo4j";
 export type CandidateReviewAction = "approve" | "reject" | "defer" | "merge-into-existing";
+export type TemporalMode = "current" | "past" | "evolution";
 
 export interface ScopeFilter {
   scopeType: ScopeType;
@@ -243,7 +244,7 @@ export interface RecallPlan {
     label: string;
   };
   preferRecent?: boolean;
-  temporalMode?: "current" | "past" | "evolution";
+  temporalMode?: TemporalMode;
 }
 
 export interface EmbeddingConfig {

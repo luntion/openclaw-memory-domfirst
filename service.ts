@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { getDb } from "./src/store/db.ts";
 import { createBackendRuntime } from "./src/backend/factory.ts";
-import { DEFAULT_CONFIG, type GmConfig } from "./src/types.ts";
+import { DEFAULT_CONFIG, type GmConfig, type RecallPlan, type TemporalMode } from "./src/types.ts";
 import { createCompleteFn } from "./src/engine/llm.ts";
 import { createEmbedFn } from "./src/engine/embed.ts";
 import { DomFirstMemoryEngine } from "./src/domfirst/engine.ts";
@@ -30,6 +30,34 @@ function formatSearchResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["se
     lines.push("No relevant memory found.");
   }
   return lines.join("\n").trim();
+}
+
+function parseTemporalSearchOptions(body: any): {
+  temporalMode?: TemporalMode;
+  includeTeam?: boolean;
+  depth?: RecallPlan["depth"];
+  timeRange?: RecallPlan["timeRange"];
+  preferRecent?: boolean;
+  maxNodes?: number;
+  maxDepth?: number;
+} {
+  const timeRange = body.timeRange && typeof body.timeRange === "object"
+    ? {
+      start: body.timeRange.start == null ? undefined : Number(body.timeRange.start),
+      end: body.timeRange.end == null ? undefined : Number(body.timeRange.end),
+      label: String(body.timeRange.label ?? "custom"),
+    }
+    : undefined;
+
+  return {
+    temporalMode: body.temporalMode,
+    includeTeam: typeof body.includeTeam === "boolean" ? body.includeTeam : undefined,
+    depth: body.depth,
+    timeRange,
+    preferRecent: typeof body.preferRecent === "boolean" ? body.preferRecent : undefined,
+    maxNodes: body.maxNodes == null ? undefined : Number(body.maxNodes),
+    maxDepth: body.maxDepth == null ? undefined : Number(body.maxDepth),
+  };
 }
 
 function formatInspectResult(payload: Awaited<ReturnType<DomFirstMemoryEngine["inspect"]>>): string {
@@ -215,6 +243,12 @@ async function main(): Promise<void> {
       if (req.method === "POST" && url.pathname === "/search") {
         const ctx = engine.buildScopeContext(body.ctx ?? {});
         const result = await engine.search(String(body.query ?? ""), ctx, body.plan ?? undefined);
+        return void res.end(JSON.stringify({ ...result, displayText: formatSearchResult(result) }));
+      }
+
+      if (req.method === "POST" && url.pathname === "/search/temporal") {
+        const ctx = engine.buildScopeContext(body.ctx ?? {});
+        const result = await engine.searchTemporal(String(body.query ?? ""), ctx, parseTemporalSearchOptions(body));
         return void res.end(JSON.stringify({ ...result, displayText: formatSearchResult(result) }));
       }
 

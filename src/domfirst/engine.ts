@@ -7,6 +7,7 @@ import type {
   GmNode,
   RecallPlan,
   ScopeContext,
+  TemporalMode,
 } from "../types.ts";
 import type { BackendRuntime } from "../backend/types.ts";
 import { Extractor } from "../extractor/extract.ts";
@@ -141,7 +142,33 @@ export class DomFirstMemoryEngine {
   }
 
   async search(query: string, ctx: ScopeContext, overridePlan?: Partial<RecallPlan>) {
-    const plan = { ...this.planRecall(query, ctx), ...overridePlan } as RecallPlan;
+    const plan = this.resolvePlan(query, ctx, overridePlan);
+    const result = await this.runtime.recallBackend.recall(query, plan);
+    return { plan, result };
+  }
+
+  async searchTemporal(
+    query: string,
+    ctx: ScopeContext,
+    options?: {
+      temporalMode?: TemporalMode;
+      includeTeam?: boolean;
+      depth?: RecallPlan["depth"];
+      timeRange?: RecallPlan["timeRange"];
+      preferRecent?: boolean;
+      maxNodes?: number;
+      maxDepth?: number;
+    },
+  ) {
+    const plan = this.resolvePlan(query, ctx, {
+      temporalMode: options?.temporalMode,
+      includeTeam: options?.includeTeam,
+      depth: options?.depth,
+      timeRange: options?.timeRange,
+      preferRecent: options?.preferRecent,
+      maxNodes: options?.maxNodes,
+      maxDepth: options?.maxDepth,
+    });
     const result = await this.runtime.recallBackend.recall(query, plan);
     return { plan, result };
   }
@@ -384,6 +411,20 @@ export class DomFirstMemoryEngine {
         .join("\n");
     }
     return String(content ?? "");
+  }
+
+  private resolvePlan(query: string, ctx: ScopeContext, overridePlan?: Partial<RecallPlan>): RecallPlan {
+    const base = this.planRecall(query, ctx);
+    const cleanedOverrides = Object.fromEntries(
+      Object.entries(overridePlan ?? {}).filter(([, value]) => value !== undefined),
+    ) as Partial<RecallPlan>;
+    const includeTeam = cleanedOverrides.includeTeam ?? base.includeTeam;
+    return {
+      ...base,
+      ...cleanedOverrides,
+      includeTeam,
+      scopeFilters: buildScopeFilters(ctx, includeTeam),
+    } as RecallPlan;
   }
 }
 

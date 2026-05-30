@@ -1,17 +1,17 @@
 # 安装部署说明
 
-这份说明用于把 `openclaw-memory-domfirst` 作为：
+这份说明用于把 `openclaw-memory-domfirst` 部署为：
 
 - OpenClaw 的 `context-engine` 插件
 - 可选的本地 `memory service`
 
-部署到 Windows 或 macOS 环境中。
+支持 Windows 和 macOS，本说明默认不依赖 Docker。
 
 ## 1. 前置要求
 
 - Node.js 22+
-- 支持插件的 OpenClaw
-- 一个可写的本地目录，用于 SQLite 消息缓冲数据库
+- 可加载插件的 OpenClaw
+- 一个可写本地目录，用于 SQLite 消息缓冲
 
 推荐但非强制：
 
@@ -71,7 +71,7 @@ npm run build
           "backend": {
             "mode": "graphiti-neo4j",
             "graphiti": {
-              "baseUrl": "http://127.0.0.1:8000",
+              "baseUrl": "http://127.0.0.1:18000",
               "groupPrefix": "ocm",
               "timeoutMs": 20000
             },
@@ -90,39 +90,40 @@ npm run build
 }
 ```
 
-重点：
+关键说明：
 
-- 没有 `plugins.slots.contextEngine`，OpenClaw 不会跑这套生命周期钩子
-- `llm` 建议配置，否则抽取质量会明显下降
+- 没有 `plugins.slots.contextEngine`，OpenClaw 不会把这套插件当上下文引擎使用
+- `llm` 建议配置，否则抽取质量会下降
 - `embedding` 可选，不配置时会退化到全文检索
-- `backend.mode = "graphiti-neo4j"` 表示启用 Neo4j + Graphiti 主核
-- `graphiti-neo4j` 模式首次成功连接后，会自动创建所需的 Neo4j 约束和索引
+- `backend.mode = "sqlite"` 使用本地兼容模式
+- `backend.mode = "graphiti-neo4j"` 使用 Neo4j + Graphiti 主核
+- 在 `graphiti-neo4j` 模式下，首次成功连接后会自动初始化 Neo4j 约束和索引
 
-## 4. Neo4j 与 Graphiti 两种接入方式
+## 4. 两种后端接入方式
 
-### 方案 A：本机 Neo4j Desktop / 本地 Graphiti
+### 方案 A：本机 Neo4j + 本机 Graphiti
 
 适合：
 
 - Windows 本机开发
 - macOS 本机开发
-- 不想依赖 Docker
+- 不想依赖 Docker 作为主安装方式
 
 建议配置：
 
-- Neo4j Desktop 或本地 Neo4j 服务监听 `bolt://127.0.0.1:7687`
-- Graphiti 服务监听 `http://127.0.0.1:8000`
+- Neo4j 监听 `bolt://127.0.0.1:7687`
+- Graphiti 监听 `http://127.0.0.1:18000`
 
 可参考：
 
 - [本机 Graphiti 配置示例](./openclaw.config.graphiti-local.json)
 
-### 方案 B：外部 Neo4j / 外部 Graphiti
+### 方案 B：外部 Neo4j + 外部 Graphiti
 
 适合：
 
-- 你已有远程 Neo4j
-- 你已有单独部署的 Graphiti 服务
+- 已有远程 Neo4j
+- 已有独立部署的 Graphiti 服务
 
 建议配置：
 
@@ -188,13 +189,13 @@ http://127.0.0.1:42690
 curl http://127.0.0.1:42690/health
 ```
 
-### 查看综合诊断信息
+### 查看综合诊断
 
 ```bash
 curl http://127.0.0.1:42690/diagnostics
 ```
 
-### 运行联调 smoke-test
+### 运行 smoke test
 
 Windows：
 
@@ -222,71 +223,47 @@ macOS / Linux：
 npm run backend:check:sh
 ```
 
-这个脚本会检查：
+这个检查会覆盖：
 
 - Graphiti `/healthcheck`
 - `ocm-memoryd` `/health`
-- Neo4j Bolt 端口连通性
+- Neo4j Bolt 连通性
 
-在 `graphiti-neo4j` 模式下，`/health` 返回里还会包含 `schemaReady`、`neo4j`、`graphiti` 等后端状态字段。
+在 `graphiti-neo4j` 模式下，`/health` 还会返回：
 
-`/diagnostics` 会额外返回：
+- `schemaReady`
+- `neo4j`
+- `graphiti`
 
-- 各 scope 的节点数量
-- 候选共享记忆数量
-- 审计问题数量
-- 候选与审计样本
+## 8. 显式时序检索
 
-smoke-test 会自动完成：
+当前版本支持显式时序查询：
 
-- 写入一条样本故障/修复记忆
-- 触发一次浅召回验证
-- 触发一次深召回验证
-- 输出同一作用域下的综合诊断结果
+- 插件工具：`ocm_search_temporal`
+- 服务接口：`POST /search/temporal`
 
-## 8. 验证插件是否生效
+你可以显式传入：
 
-建议先做一轮短对话，然后确认：
+- `temporalMode: current | past | evolution`
+- `timeRange.start`
+- `timeRange.end`
+- `timeRange.label`
 
-- 消息已进入缓冲层
-- 记忆节点已被抽取
-- 召回能返回作用域正确的结果
+适合处理：
 
-建议检查：
-
-- `ocm_stats`
-- `ocm_search`
-- `ocm_reindex`
-- `ocm_inspect`
-- `ocm_candidates`
-- `ocm_lineage`
-- `ocm_audit`
+- 指定时间窗口内的问题
+- 明确要求看历史版本
+- 明确要求看演化链
 
 ## 9. 首次联调建议
 
-1. 让 OpenClaw 完成一个会产生明确故障或修复记录的小任务
-2. 等该轮结束，确保 `afterTurn` 已完成抽取
-3. 提问：
+建议先做一轮小任务，然后验证：
 
-```text
-昨天那个任务我们遇到过故障对吧
-```
-
-预期：
-
-- 触发浅召回
-- 给出确认型回答
-
-再提问：
-
-```text
-昨天那个任务遇到的故障是什么来着
-```
-
-预期：
-
-- 触发更深层召回
-- 返回更完整的原因、关系和修复信息
+1. OpenClaw 是否正常写入消息
+2. `afterTurn` 是否完成记忆抽取
+3. `ocm_search` 是否能返回结果
+4. `ocm_search_temporal` 是否能返回 `past / evolution` 结果
+5. `/diagnostics` 是否显示正常的后端状态
 
 ## 10. 文件记忆索引
 
@@ -298,8 +275,8 @@ smoke-test 会自动完成：
 手动重建索引：
 
 ```bash
-curl -X POST http://127.0.0.1:42690/reindex ^
-  -H "content-type: application/json" ^
+curl -X POST http://127.0.0.1:42690/reindex \
+  -H "content-type: application/json" \
   -d "{ \"root\": \"D:/AI-workspace/your-project\", \"ctx\": { \"sessionId\": \"sess-1\", \"agentId\": \"agent-a\", \"projectId\": \"proj-1\", \"teamId\": \"team-1\" } }"
 ```
 
@@ -307,28 +284,28 @@ curl -X POST http://127.0.0.1:42690/reindex ^
 
 ### 插件加载了，但没有形成记忆
 
-检查：
+先检查：
 
 - `plugins.slots.contextEngine` 是否设置
 - `dbPath` 是否可写
-- OpenClaw 是否真的加载了这个插件条目
+- OpenClaw 是否真的加载了这个插件
 
 ### Graphiti / Neo4j 模式下记忆质量差
 
-检查：
+先检查：
 
-- Graphiti 服务是否真的可达
+- Graphiti 是否可达
 - Neo4j Bolt 是否可连接
 - `llm` 与 `embedding` 是否配置
-- scope 是否设置过窄
+- scope 是否设置正确
 
 ### `team` 层没有结果
 
 这是默认行为，除非：
 
-- 查询明显需要共享经验
-- 记忆已经晋升进 `team`
-- 或者你显式查看 `includeTeam=true`
+- 查询本身明显需要团队共享经验
+- 记忆已经晋升到 `team`
+- 或者显式传入 `includeTeam=true`
 
 ### 健康检查失败
 
@@ -336,4 +313,4 @@ curl -X POST http://127.0.0.1:42690/reindex ^
 
 - Graphiti `baseUrl`
 - Neo4j `uri / username / password / database`
-- `npm run backend:check:*` 输出的失败点
+- `npm run backend:check:*` 的错误输出

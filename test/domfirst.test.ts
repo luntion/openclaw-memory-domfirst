@@ -382,4 +382,91 @@ describe("admin/debug memory access", () => {
     expect(result.result.timeline?.some((item) => item.name === "explicit-timeline-skill")).toBe(true);
     expect(result.result.timelineSummary).toContain("explicit-timeline-skill:");
   });
+
+  it("searchTemporal accepts explicit timeRange filters", async () => {
+    upsertScopedNode(db, {
+      type: "EVENT",
+      name: "time-window-match",
+      description: "inside custom range",
+      content: "matched by custom temporal range",
+    }, ctx, {
+      scopeType: "agent",
+      scopeId: "agent-a",
+      eventTime: new Date("2026-05-30T08:00:00Z").getTime(),
+    });
+
+    upsertScopedNode(db, {
+      type: "EVENT",
+      name: "time-window-miss",
+      description: "outside custom range",
+      content: "should be excluded by custom temporal range",
+    }, ctx, {
+      scopeType: "agent",
+      scopeId: "agent-a",
+      eventTime: new Date("2026-05-20T08:00:00Z").getTime(),
+    });
+
+    const engine = new DomFirstMemoryEngine(createSQLiteRuntime(db, DEFAULT_CONFIG), db, DEFAULT_CONFIG, async () => "");
+    const result = await engine.searchTemporal("time-window-match", ctx, {
+      temporalMode: "current",
+      depth: "L2",
+      timeRange: {
+        start: new Date("2026-05-29T00:00:00Z").getTime(),
+        end: new Date("2026-05-31T00:00:00Z").getTime(),
+        label: "custom-window",
+      },
+    });
+
+    expect(result.plan.timeRange?.label).toBe("custom-window");
+    expect(result.result.nodes.some((node) => node.name === "time-window-match")).toBe(true);
+    expect(result.result.nodes.some((node) => node.name === "time-window-miss")).toBe(false);
+  });
+
+  it("deprioritizes superseded and disputed nodes in current mode", async () => {
+    upsertScopedNode(db, {
+      type: "SKILL",
+      name: "active-memory",
+      description: "active entry",
+      content: "shared query anchor",
+    }, ctx, { scopeType: "agent", scopeId: "agent-a" });
+
+    const stale = upsertScopedNode(db, {
+      type: "SKILL",
+      name: "stale-memory",
+      description: "stale entry",
+      content: "shared query anchor",
+    }, ctx, { scopeType: "agent", scopeId: "agent-a" });
+
+    const superseded = upsertScopedNode(db, {
+      type: "SKILL",
+      name: "superseded-memory",
+      description: "superseded entry",
+      content: "shared query anchor",
+    }, ctx, { scopeType: "agent", scopeId: "agent-a" });
+
+    const disputed = upsertScopedNode(db, {
+      type: "SKILL",
+      name: "disputed-memory",
+      description: "disputed entry",
+      content: "shared query anchor",
+    }, ctx, { scopeType: "agent", scopeId: "agent-a" });
+
+    db.prepare("UPDATE gm_nodes SET status='stale' WHERE id=?").run(stale.node.id);
+    db.prepare("UPDATE gm_nodes SET status='superseded' WHERE id=?").run(superseded.node.id);
+    db.prepare("UPDATE gm_nodes SET status='disputed' WHERE id=?").run(disputed.node.id);
+
+    const recaller = new DomFirstRecaller(db, DEFAULT_CONFIG);
+    const result = await recaller.recall("shared query anchor", {
+      depth: "L2",
+      includeTeam: false,
+      maxNodes: 4,
+      maxDepth: 1,
+      reason: "status weighting",
+      scopeFilters: [{ scopeType: "agent", scopeIds: ["agent-a"] }],
+      temporalMode: "current",
+    });
+
+    expect(result.nodes[0]?.name).toBe("active-memory");
+    expect(result.nodes.slice(1).some((node) => node.name === "disputed-memory")).toBe(true);
+  });
 });

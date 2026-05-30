@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+Temporal search and memory-governance upgrade for OpenClaw Memory DomFirst.
+
+Highlights:
+
+- explicit temporal search API via `POST /search/temporal`
+- new plugin tool: `ocm_search_temporal`
+- explicit temporal modes now support custom `timeRange`
+- current recall now downranks `stale`, `superseded`, and `disputed` memories
+- `past` and `evolution` modes now surface superseded history more naturally
+- SQLite compatibility mode now supports the same extended node statuses as the Neo4j core
+- README updated for explicit temporal search behavior
+
+Verification status for this release:
+
+- `npm test` passing with `101` tests
+- `npm run build` passing
+
 ## 0.3.0
 
 Graphiti + Neo4j core refactor for OpenClaw Memory DomFirst.

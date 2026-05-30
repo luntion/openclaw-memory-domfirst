@@ -2,7 +2,7 @@
   "kind": "context-engine",
   "id": "openclaw-memory-domfirst",
   "name": "OpenClaw Memory DomFirst",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Scoped elastic memory engine with layered recall and local service",
   "configSchema": {
     "type": "object",

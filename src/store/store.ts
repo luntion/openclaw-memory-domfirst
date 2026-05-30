@@ -109,7 +109,7 @@ export function findByName(
   name: string,
   filters?: ScopeFilter[],
 ): GmNode | null {
-  const rows = db.prepare("SELECT * FROM gm_nodes WHERE name = ? AND status='active'").all(normalizeName(name)) as any[];
+  const rows = db.prepare("SELECT * FROM gm_nodes WHERE name = ?").all(normalizeName(name)) as any[];
   return rows.map(toNode).find((row) => matchesScopeFilters(row, filters)) ?? null;
 }
 
@@ -118,7 +118,7 @@ export function listByName(
   name: string,
   filters?: ScopeFilter[],
 ): GmNode[] {
-  const rows = db.prepare("SELECT * FROM gm_nodes WHERE name = ? AND status='active' ORDER BY updated_at DESC").all(normalizeName(name)) as any[];
+  const rows = db.prepare("SELECT * FROM gm_nodes WHERE name = ? ORDER BY updated_at DESC").all(normalizeName(name)) as any[];
   return rows.map(toNode).filter((row) => matchesScopeFilters(row, filters));
 }
 
@@ -128,7 +128,7 @@ export function findById(db: DatabaseSyncInstance, id: string): GmNode | null {
 }
 
 export function allActiveNodes(db: DatabaseSyncInstance): GmNode[] {
-  return (db.prepare("SELECT * FROM gm_nodes WHERE status='active'").all() as any[]).map(toNode);
+  return (db.prepare("SELECT * FROM gm_nodes").all() as any[]).map(toNode);
 }
 
 export function allEdges(db: DatabaseSyncInstance): GmEdge[] {
@@ -490,7 +490,7 @@ export function searchNodes(db: DatabaseSyncInstance, query: string, limit = 6):
       const rows = db.prepare(`
         SELECT n.*, rank FROM gm_nodes_fts fts
         JOIN gm_nodes n ON n.rowid = fts.rowid
-        WHERE gm_nodes_fts MATCH ? AND n.status = 'active'
+        WHERE gm_nodes_fts MATCH ?
         ORDER BY rank LIMIT ?
       `).all(ftsQuery, limit) as any[];
       if (rows.length > 0) return rows.map(toNode);
@@ -502,14 +502,14 @@ export function searchNodes(db: DatabaseSyncInstance, query: string, limit = 6):
   const where = terms.map(() => "(name LIKE ? OR description LIKE ? OR content LIKE ?)").join(" OR ");
   const likes = terms.flatMap((term) => [`%${term}%`, `%${term}%`, `%${term}%`]);
   return (db.prepare(`
-    SELECT * FROM gm_nodes WHERE status='active' AND (${where})
+    SELECT * FROM gm_nodes WHERE (${where})
     ORDER BY pagerank DESC, validated_count DESC, updated_at DESC LIMIT ?
   `).all(...likes, limit) as any[]).map(toNode);
 }
 
 export function topNodes(db: DatabaseSyncInstance, limit = 6): GmNode[] {
   return (db.prepare(`
-    SELECT * FROM gm_nodes WHERE status='active'
+    SELECT * FROM gm_nodes
     ORDER BY pagerank DESC, validated_count DESC, updated_at DESC LIMIT ?
   `).all(limit) as any[]).map(toNode);
 }
@@ -524,7 +524,7 @@ export function graphWalk(
   const placeholders = seedIds.map(() => "?").join(",");
   const walkRows = db.prepare(`
     WITH RECURSIVE walk(node_id, depth) AS (
-      SELECT id, 0 FROM gm_nodes WHERE id IN (${placeholders}) AND status='active'
+      SELECT id, 0 FROM gm_nodes WHERE id IN (${placeholders})
       UNION
       SELECT
         CASE WHEN e.from_id = w.node_id THEN e.to_id ELSE e.from_id END,
@@ -541,7 +541,7 @@ export function graphWalk(
 
   const nodePlaceholders = nodeIds.map(() => "?").join(",");
   const nodes = (db.prepare(`
-    SELECT * FROM gm_nodes WHERE id IN (${nodePlaceholders}) AND status='active'
+    SELECT * FROM gm_nodes WHERE id IN (${nodePlaceholders})
   `).all(...nodeIds) as any[]).map(toNode);
 
   const edges = (db.prepare(`
@@ -554,7 +554,7 @@ export function graphWalk(
 export function getBySession(db: DatabaseSyncInstance, sessionId: string): GmNode[] {
   return (db.prepare(`
     SELECT DISTINCT n.* FROM gm_nodes n, json_each(n.source_sessions) j
-    WHERE j.value = ? AND n.status = 'active'
+    WHERE j.value = ?
   `).all(sessionId) as any[]).map(toNode);
 }
 
@@ -672,7 +672,7 @@ export function getStats(db: DatabaseSyncInstance): {
 } {
   const totalNodes = (db.prepare("SELECT COUNT(*) as c FROM gm_nodes WHERE status='active'").get() as any).c;
   const byType: Record<string, number> = {};
-  for (const row of db.prepare("SELECT type, COUNT(*) as c FROM gm_nodes WHERE status='active' GROUP BY type").all() as any[]) {
+  for (const row of db.prepare("SELECT type, COUNT(*) as c FROM gm_nodes GROUP BY type").all() as any[]) {
     byType[row.type] = row.c;
   }
   const totalEdges = (db.prepare("SELECT COUNT(*) as c FROM gm_edges").get() as any).c;
@@ -681,7 +681,7 @@ export function getStats(db: DatabaseSyncInstance): {
     byEdgeType[row.type] = row.c;
   }
   const communities = (db.prepare(
-    "SELECT COUNT(DISTINCT community_id) as c FROM gm_nodes WHERE status='active' AND community_id IS NOT NULL",
+    "SELECT COUNT(DISTINCT community_id) as c FROM gm_nodes WHERE community_id IS NOT NULL",
   ).get() as any).c;
   return { totalNodes, byType, totalEdges, byEdgeType, communities };
 }
@@ -702,7 +702,7 @@ export function getVectorHash(db: DatabaseSyncInstance, nodeId: string): string 
 export function getAllVectors(db: DatabaseSyncInstance): Array<{ nodeId: string; embedding: Float32Array }> {
   const rows = db.prepare(`
     SELECT v.node_id, v.embedding FROM gm_vectors v
-    JOIN gm_nodes n ON n.id = v.node_id WHERE n.status = 'active'
+    JOIN gm_nodes n ON n.id = v.node_id
   `).all() as any[];
   return rows.map((row) => {
     const raw = row.embedding as Uint8Array;
@@ -724,7 +724,6 @@ export function vectorSearchWithScore(
   const rows = db.prepare(`
     SELECT v.node_id, v.embedding, n.*
     FROM gm_vectors v JOIN gm_nodes n ON n.id = v.node_id
-    WHERE n.status = 'active'
   `).all() as any[];
 
   if (!rows.length) return [];
@@ -763,7 +762,7 @@ export function vectorSearch(
 export function communityRepresentatives(db: DatabaseSyncInstance, perCommunity = 2): GmNode[] {
   const rows = db.prepare(`
     SELECT * FROM gm_nodes
-    WHERE status = 'active' AND community_id IS NOT NULL
+    WHERE community_id IS NOT NULL
     ORDER BY community_id, updated_at DESC
   `).all() as any[];
 
@@ -915,7 +914,7 @@ export function nodesByCommunityIds(
 export function pruneCommunitySummaries(db: DatabaseSyncInstance): number {
   const result = db.prepare(`
     DELETE FROM gm_communities WHERE id NOT IN (
-      SELECT DISTINCT community_id FROM gm_nodes WHERE community_id IS NOT NULL AND status='active'
+      SELECT DISTINCT community_id FROM gm_nodes WHERE community_id IS NOT NULL
     )
   `).run();
   return result.changes;

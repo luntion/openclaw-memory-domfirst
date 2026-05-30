@@ -309,7 +309,14 @@ class GraphitiNeo4jRecallBackend implements RecallBackend {
     try {
       const graphitiNodes = await this.searchGraphitiFacts(query, plan);
       const neo4jNodes = await this.searchNeo4jMemories(session, query, plan);
-      const deduped = dedupeNodes([...neo4jNodes, ...graphitiNodes]).slice(0, plan.maxNodes);
+      const deduped = dedupeNodes([...neo4jNodes, ...graphitiNodes])
+        .sort((a, b) =>
+          scoreNodeForPlan(b, plan) - scoreNodeForPlan(a, plan) ||
+          b.verificationCount - a.verificationCount ||
+          b.confidence - a.confidence ||
+          b.updatedAt - a.updatedAt,
+        )
+        .slice(0, plan.maxNodes);
       const edges = deduped.length
         ? await this.loadEdges(session, deduped.map((node) => node.id), plan)
         : [];
@@ -1197,6 +1204,39 @@ function matchesTime(ts: number | null | undefined, plan: RecallPlan): boolean {
   if (plan.timeRange.start !== undefined && ts < plan.timeRange.start) return false;
   if (plan.timeRange.end !== undefined && ts >= plan.timeRange.end) return false;
   return true;
+}
+
+function scoreNodeForPlan(node: Pick<GmNode, "status" | "verificationCount" | "confidence" | "eventTime" | "updatedAt" | "createdAt">, plan: RecallPlan): number {
+  let score = node.verificationCount + node.confidence;
+  score += statusScoreDelta(node.status, plan);
+  if (plan.preferRecent) {
+    const ts = node.eventTime ?? node.updatedAt ?? node.createdAt;
+    const ageMs = Date.now() - ts;
+    const ageDays = Math.max(ageMs / (24 * 60 * 60 * 1000), 0);
+    score += 1 / (1 + ageDays);
+  }
+  return score;
+}
+
+function statusScoreDelta(status: GmNode["status"], plan: RecallPlan): number {
+  if (plan.temporalMode === "past") {
+    if (status === "superseded") return 0.75;
+    if (status === "stale") return 0.1;
+    if (status === "disputed") return -0.35;
+    return 0;
+  }
+
+  if (plan.temporalMode === "evolution") {
+    if (status === "superseded") return 0.35;
+    if (status === "stale") return -0.1;
+    if (status === "disputed") return -0.4;
+    return 0;
+  }
+
+  if (status === "superseded") return -0.75;
+  if (status === "stale") return -0.3;
+  if (status === "disputed") return -0.6;
+  return 0;
 }
 
 function buildTimeline(versions: GmNodeVersion[]): NonNullable<RecallResult["timeline"]> {

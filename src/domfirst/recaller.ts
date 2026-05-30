@@ -1,6 +1,6 @@
 import type { DatabaseSyncInstance } from "@photostructure/sqlite";
 import type { EmbedFn } from "../engine/embed.ts";
-import type { GmConfig, RecallPlan, RecallResult } from "../types.ts";
+import type { GmConfig, GmNode, RecallPlan, RecallResult } from "../types.ts";
 import { graphWalkScoped, searchScopedNodes, vectorSearchScoped } from "./store.ts";
 import { personalizedPageRank } from "../graph/pagerank.ts";
 import { searchNodeVersions } from "../store/store.ts";
@@ -145,6 +145,7 @@ export class DomFirstRecaller {
     plan: RecallPlan,
   ) {
     let score = scores.get(node.id) ?? 0;
+    score += statusScoreDelta(node, plan);
     if (plan.preferRecent) {
       const ageMs = Date.now() - (node.eventTime ?? node.updatedAt ?? node.createdAt);
       const ageDays = Math.max(ageMs / (24 * 60 * 60 * 1000), 0);
@@ -253,4 +254,25 @@ export class DomFirstRecaller {
 
     return lines.join("\n");
   }
+}
+
+function statusScoreDelta(node: Pick<GmNode, "status">, plan: RecallPlan): number {
+  if (plan.temporalMode === "past") {
+    if (node.status === "superseded") return 0.75;
+    if (node.status === "stale") return 0.1;
+    if (node.status === "disputed") return -0.35;
+    return 0;
+  }
+
+  if (plan.temporalMode === "evolution") {
+    if (node.status === "superseded") return 0.35;
+    if (node.status === "stale") return -0.1;
+    if (node.status === "disputed") return -0.4;
+    return 0;
+  }
+
+  if (node.status === "superseded") return -0.75;
+  if (node.status === "stale") return -0.3;
+  if (node.status === "disputed") return -0.6;
+  return 0;
 }

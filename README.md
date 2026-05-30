@@ -50,6 +50,7 @@ The local service exposes:
 - `GET /diagnostics`
 - `POST /ingest`
 - `POST /search`
+- `POST /search/temporal`
 - `POST /recall-plan`
 - `POST /inspect`
 - `POST /promote`
@@ -247,6 +248,7 @@ http://127.0.0.1:42690
 The plugin registers:
 
 - `ocm_search`
+- `ocm_search_temporal`
 - `ocm_remember`
 - `ocm_stats`
 - `ocm_promote`
@@ -261,11 +263,20 @@ The plugin registers:
 
 The smoke scripts are the fastest end-to-end check for a running `memoryd`: they ingest one sample failure/fix event, run shallow recall, run deeper recall, and then print diagnostics for the same scope.
 
+`ocm_search_temporal` and `POST /search/temporal` support explicit temporal control:
+
+- `temporalMode: current | past | evolution`
+- optional `timeRange.start`
+- optional `timeRange.end`
+- optional `timeRange.label`
+
+Current-mode recall now downranks `stale`, `superseded`, and `disputed` memories by default. In `past` and `evolution` modes, superseded history is allowed to surface more easily.
+
 ## Verification Status
 
 Current local verification:
 
-- `npm test` -> 97 passing tests
+- `npm test` -> 101 passing tests
 - `npm run build` -> passes
 - `npm run package:ps` -> passes
 

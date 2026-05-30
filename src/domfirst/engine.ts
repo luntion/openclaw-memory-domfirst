@@ -419,13 +419,40 @@ export class DomFirstMemoryEngine {
       Object.entries(overridePlan ?? {}).filter(([, value]) => value !== undefined),
     ) as Partial<RecallPlan>;
     const includeTeam = cleanedOverrides.includeTeam ?? base.includeTeam;
-    return {
+    const plan = {
       ...base,
       ...cleanedOverrides,
       includeTeam,
       scopeFilters: buildScopeFilters(ctx, includeTeam),
     } as RecallPlan;
+
+    if (cleanedOverrides.depth) {
+      if (cleanedOverrides.maxNodes === undefined) {
+        plan.maxNodes = defaultMaxNodesForDepth(cleanedOverrides.depth);
+      }
+      if (cleanedOverrides.maxDepth === undefined) {
+        plan.maxDepth = defaultGraphDepthForRecall(cleanedOverrides.depth);
+      }
+      if (!cleanedOverrides.reason) {
+        plan.reason = `explicit ${cleanedOverrides.depth} override`;
+      }
+    }
+
+    return plan;
   }
+}
+
+function defaultMaxNodesForDepth(depth: RecallPlan["depth"]): number {
+  if (depth === "L0") return 0;
+  if (depth === "L1") return 3;
+  if (depth === "L2") return 5;
+  return 8;
+}
+
+function defaultGraphDepthForRecall(depth: RecallPlan["depth"]): number {
+  if (depth === "L0" || depth === "L1") return 0;
+  if (depth === "L2") return 1;
+  return 2;
 }
 
 function buildScopeFilters(ctx: ScopeContext, includeTeam = true) {

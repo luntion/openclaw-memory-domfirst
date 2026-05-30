@@ -284,6 +284,11 @@ const plugin = {
           temporalMode: Type.String({ description: "Temporal mode: current | past | evolution" }),
           includeTeam: Type.Optional(Type.Boolean()),
           depth: Type.Optional(Type.String({ description: "Optional recall depth override L0-L3" })),
+          timeRange: Type.Optional(Type.Object({
+            start: Type.Optional(Type.Number()),
+            end: Type.Optional(Type.Number()),
+            label: Type.Optional(Type.String()),
+          })),
           preferRecent: Type.Optional(Type.Boolean()),
           maxNodes: Type.Optional(Type.Number()),
           maxDepth: Type.Optional(Type.Number()),
@@ -293,6 +298,7 @@ const plugin = {
           temporalMode: TemporalMode;
           includeTeam?: boolean;
           depth?: RecallPlan["depth"];
+          timeRange?: { start?: number; end?: number; label?: string };
           preferRecent?: boolean;
           maxNodes?: number;
           maxDepth?: number;

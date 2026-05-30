@@ -236,10 +236,18 @@ export class Extractor {
         String(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).slice(0, 800)
       }`).join("\n\n---\n\n");
 
-    const raw = await this.llm(
-      EXTRACT_SYS,
-      EXTRACT_USER(msgs, params.existingNames.join(", ")),
-    );
+    let raw = "";
+    try {
+      raw = await this.llm(
+        EXTRACT_SYS,
+        EXTRACT_USER(msgs, params.existingNames.join(", ")),
+      );
+    } catch (error) {
+      if (process.env.GM_DEBUG) {
+        console.log(`  [DEBUG] LLM extract unavailable, falling back to heuristic extraction: ${String(error)}`);
+      }
+      return heuristicExtract(params.messages, params.existingNames);
+    }
 
     if (process.env.GM_DEBUG) {
       console.log("\n  [DEBUG] LLM raw response (first 2000 chars):");
@@ -250,8 +258,12 @@ export class Extractor {
   }
 
   async finalize(params: { sessionNodes: any[]; graphSummary: string }): Promise<FinalizeResult> {
-    const raw = await this.llm(FINALIZE_SYS, FINALIZE_USER(params.sessionNodes, params.graphSummary));
-    return this.parseFinalize(raw, params.sessionNodes);
+    try {
+      const raw = await this.llm(FINALIZE_SYS, FINALIZE_USER(params.sessionNodes, params.graphSummary));
+      return this.parseFinalize(raw, params.sessionNodes);
+    } catch {
+      return { promotedSkills: [], newEdges: [], invalidations: [] };
+    }
   }
 
   private parseExtract(raw: string): ExtractionResult {
@@ -338,4 +350,75 @@ function extractJson(raw: string): string {
   const last = s.lastIndexOf("}");
   if (first !== -1 && last > first) return s.slice(first, last + 1);
   return s;
+}
+
+function heuristicExtract(messages: any[], existingNames: string[]): ExtractionResult {
+  const text = messages
+    .map((m) => String(typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+    .join("\n")
+    .trim();
+  if (!text) return { nodes: [], edges: [] };
+
+  const lower = text.toLowerCase();
+  const existing = new Set(existingNames.map(normalizeName));
+  const nodes: ExtractionResult["nodes"] = [];
+  const edges: ExtractionResult["edges"] = [];
+
+  const eventLike = /(error|failure|failed|fault|bug|issue|incident|故障|报错|异常|失败)/i.test(text);
+  const fixLike = /(fixed by|fix(ed)? it by|resolved by|solution|workaround|修复|解决|处理方式)/i.test(text);
+
+  const eventNameBase = eventLike
+    ? lower.includes("neo4j") && lower.includes("index")
+      ? "neo4j-index-bootstrap-failure"
+      : lower.includes("skill") && lower.includes("build")
+        ? "skill-build-failure"
+        : "memory-event"
+    : "memory-note";
+
+  const eventName = uniquifyName(eventNameBase, existing);
+  nodes.push({
+    type: eventLike ? "EVENT" : "TASK",
+    name: eventName,
+    description: summarizeLine(text, eventLike ? "Detected a failure/event from conversation context" : "Recorded a task/memory note from conversation context"),
+    content: `${eventName}\n${eventLike ? "Phenomenon" : "Goal"}: ${summarizeLine(text, text.slice(0, 240))}\nDetails: ${text}`,
+  });
+  existing.add(eventName);
+
+  if (fixLike) {
+    const skillNameBase =
+      lower.includes("schema") || lower.includes("neo4j")
+        ? "neo4j-schema-bootstrap"
+        : lower.includes("build")
+          ? "skill-build-recovery"
+          : "memory-fix-skill";
+    const skillName = uniquifyName(skillNameBase, existing);
+    nodes.push({
+      type: "SKILL",
+      name: skillName,
+      description: summarizeLine(text, "Derived a reusable remediation skill from conversation context"),
+      content: `${skillName}\nTrigger condition: ${eventName}\nExecution steps:\n1. Review the failure context from the conversation.\n2. Apply the remediation described in the conversation.\nCommon errors:\n- Missing context -> inspect the stored event details first.\n\nSource details: ${text}`,
+    });
+    edges.push({
+      from: eventName,
+      to: skillName,
+      type: "SOLVED_BY",
+      instruction: "Apply the remediation described in the conversation context.",
+      condition: summarizeLine(text, "Failure or error context present in the same conversation"),
+    });
+  }
+
+  return { nodes, edges };
+}
+
+function summarizeLine(text: string, fallback: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.slice(0, 180) || fallback;
+}
+
+function uniquifyName(base: string, existing: Set<string>): string {
+  let candidate = normalizeName(base);
+  if (!existing.has(candidate)) return candidate;
+  let i = 2;
+  while (existing.has(`${candidate}-${i}`)) i += 1;
+  return `${candidate}-${i}`;
 }

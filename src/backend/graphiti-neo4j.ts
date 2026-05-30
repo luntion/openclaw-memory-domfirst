@@ -104,13 +104,13 @@ class GraphitiClient {
         query,
         max_facts: maxFacts,
       }),
-    }) as { facts?: GraphitiFact[] };
+    }, Math.min(this.timeoutMs, 3_000)) as { facts?: GraphitiFact[] };
     return res.facts ?? [];
   }
 
-  private async request(path: string, init: RequestInit): Promise<unknown> {
+  private async request(path: string, init: RequestInit, timeoutMs = this.timeoutMs): Promise<unknown> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(`${this.baseUrl}${path}`, {
         ...init,
@@ -273,6 +273,7 @@ function mapEdge(record: Neo4jRecord, relKey = "r", fromKey = "from", toKey = "t
 
 class GraphitiNeo4jRecallBackend implements RecallBackend {
   private embed: EmbedFn | null = null;
+  private graphitiSearchDisabledUntil = 0;
 
   constructor(
     private driver: Driver,
@@ -325,14 +326,19 @@ class GraphitiNeo4jRecallBackend implements RecallBackend {
   }
 
   private async searchGraphitiFacts(query: string, plan: RecallPlan): Promise<GmNode[]> {
+    if (this.graphitiSearchDisabledUntil > Date.now()) {
+      return [];
+    }
+    const candidateFilters = plan.scopeFilters.slice(0, 2);
     const nodes: GmNode[] = [];
-    for (const filter of plan.scopeFilters) {
+    for (const filter of candidateFilters) {
       for (const scopeId of filter.scopeIds ?? []) {
         const groupId = groupIdFor(this.cfg, filter.scopeType, scopeId);
         let facts: GraphitiFact[] = [];
         try {
           facts = await this.graphiti.search([groupId], query, Math.max(2, plan.maxNodes));
         } catch {
+          this.graphitiSearchDisabledUntil = Date.now() + 5 * 60_000;
           continue;
         }
         for (const fact of facts) {

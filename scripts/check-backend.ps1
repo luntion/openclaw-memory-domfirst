@@ -34,7 +34,7 @@ $graphiti = Test-HttpJson -Url "$graphitiUrl/healthcheck" -Label "Graphiti servi
 $memoryd = Test-HttpJson -Url "$memorydUrl/health" -Label "ocm-memoryd"
 
 try {
-  $boltTarget = $neo4jUri -replace "^bolt\\+s?://", "" -replace "^neo4j\\+s?://", ""
+  $boltTarget = $neo4jUri -replace "^bolt(\+s)?://", "" -replace "^neo4j(\+s)?://", ""
   $host, $port = $boltTarget.Split(":", 2)
   if (-not $port) { $port = "7687" }
   $probe = Test-NetConnection -ComputerName $host -Port ([int]$port) -WarningAction SilentlyContinue

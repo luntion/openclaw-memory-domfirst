@@ -226,18 +226,39 @@ export class DomFirstMemoryEngine {
   }
 
   async diagnostics(ctx: ScopeContext): Promise<BackendDiagnostics> {
-    const [health, sessionStats, agentStats, projectStats, teamStats, candidates, auditFindings] = await Promise.all([
-      this.runtime.health(),
-      this.runtime.graphStore.stats([{ scopeType: "session", scopeIds: [ctx.sessionId] }]),
-      this.runtime.graphStore.stats([{ scopeType: "agent", scopeIds: [ctx.agentId] }]),
+    const health = await this.runtime.health();
+    const degraded = typeof health?.status === "string" && health.status !== "ok";
+    const emptyStats = { totalNodes: 0, totalEdges: 0, communities: 0 };
+    const emptyDiagnostics: BackendDiagnostics = {
+      backend: this.cfg.backend.mode,
+      health,
+      scopeStats: {
+        session: 0,
+        agent: 0,
+        project: 0,
+        team: 0,
+      },
+      candidateCount: 0,
+      auditFindingCount: 0,
+      sampleCandidates: [],
+      sampleAuditFindings: [],
+    };
+
+    if (degraded) {
+      return emptyDiagnostics;
+    }
+
+    const [sessionStats, agentStats, projectStats, teamStats, candidates, auditFindings] = await Promise.all([
+      this.runtime.graphStore.stats([{ scopeType: "session", scopeIds: [ctx.sessionId] }]).catch(() => emptyStats),
+      this.runtime.graphStore.stats([{ scopeType: "agent", scopeIds: [ctx.agentId] }]).catch(() => emptyStats),
       ctx.projectId
-        ? this.runtime.graphStore.stats([{ scopeType: "project", scopeIds: [ctx.projectId] }])
-        : Promise.resolve({ totalNodes: 0, totalEdges: 0, communities: 0 }),
+        ? this.runtime.graphStore.stats([{ scopeType: "project", scopeIds: [ctx.projectId] }]).catch(() => emptyStats)
+        : Promise.resolve(emptyStats),
       ctx.teamId
-        ? this.runtime.graphStore.stats([{ scopeType: "team", scopeIds: [ctx.teamId] }])
-        : Promise.resolve({ totalNodes: 0, totalEdges: 0, communities: 0 }),
-      this.runtime.graphStore.listCandidates(buildScopeFilters(ctx, true), 10),
-      this.runtime.graphStore.audit(buildScopeFilters(ctx, true)),
+        ? this.runtime.graphStore.stats([{ scopeType: "team", scopeIds: [ctx.teamId] }]).catch(() => emptyStats)
+        : Promise.resolve(emptyStats),
+      this.runtime.graphStore.listCandidates(buildScopeFilters(ctx, true), 10).catch(() => []),
+      this.runtime.graphStore.audit(buildScopeFilters(ctx, true)).catch(() => []),
     ]);
 
     return {

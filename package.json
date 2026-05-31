@@ -34,6 +34,8 @@
     "smoke:sh": "bash ./scripts/smoke-memory.sh",
     "package:ps": "powershell -ExecutionPolicy Bypass -File ./scripts/package-release.ps1",
     "package:sh": "bash ./scripts/package-release.sh",
+    "release:prepare": "node ./scripts/release-prepare.mjs",
+    "release:publish": "node ./scripts/release-publish.mjs",
     "verify:release": "npm test && npm run build",
     "test": "vitest run",
     "test:watch": "vitest"

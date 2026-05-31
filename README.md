@@ -28,6 +28,30 @@ Quick links:
 - [Release Guide](./docs/RELEASE.md)
 - [Changelog](./CHANGELOG.md)
 
+## Release Workflow
+
+Official releases now ship only from:
+
+```text
+D:\AI-workspace\openclaw-memory-domfirst-publish
+```
+
+The standardized flow is:
+
+```bash
+npm run release:prepare -- patch
+npm run release:publish
+```
+
+This repository now treats GitHub publishing as a versioned release process with:
+
+- `SemVer`
+- `CHANGELOG.md`
+- Git tags
+- GitHub Releases
+
+See [docs/RELEASE.md](./docs/RELEASE.md) for the full workflow.
+
 ## What It Ships
 
 `openclaw-memory-domfirst` has two runtime components:

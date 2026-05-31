@@ -2,7 +2,7 @@
   "kind": "context-engine",
   "id": "openclaw-memory-domfirst",
   "name": "OpenClaw Memory DomFirst",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Scoped elastic memory engine with layered recall and local service",
   "configSchema": {
     "type": "object",
@@ -38,7 +38,9 @@
       },
       "knowledgeMarkers": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Text markers used to include explicit knowledge files"
       },
       "compactTurnCount": {
@@ -59,18 +61,32 @@
       "embedding": {
         "type": "object",
         "properties": {
-          "apiKey": { "type": "string" },
-          "baseURL": { "type": "string" },
-          "model": { "type": "string" },
-          "dimensions": { "type": "integer" }
+          "apiKey": {
+            "type": "string"
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "integer"
+          }
         }
       },
       "llm": {
         "type": "object",
         "properties": {
-          "apiKey": { "type": "string" },
-          "baseURL": { "type": "string" },
-          "model": { "type": "string" }
+          "apiKey": {
+            "type": "string"
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
         }
       },
       "backend": {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.1 - 2026-05-31
+
+Summary:
+- Standardized GitHub release workflow for versioned publishing.
+
+New features:
+- Added `release:prepare` to handle SemVer bumps, version file synchronization, changelog seeding, and release notes generation.
+- Added `release:publish` to run verification, create the release commit, push `main`, create the Git tag, and push the tag.
+
+Fixes:
+- Fixed version drift between `package.json`, `package-lock.json`, and `openclaw.plugin.json`.
+- Added release guardrails for clean working trees, duplicate tag prevention, and blocking placeholder changelog content.
+
+Compatibility:
+- No breaking configuration changes.
+
+Verification:
+- `npm test` passed on 2026-05-31
+- `npm run build` passed on 2026-05-31
 ## 0.4.0
 
 Temporal search and memory-governance upgrade for OpenClaw Memory DomFirst.
